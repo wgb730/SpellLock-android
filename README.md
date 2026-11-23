@@ -446,3 +446,33 @@ adb shell dumpsys activity activities | grep topResumedActivity          # 选�
 注意：重装 APK 会把无障碍服务关掉（系统行为），装完要重新打开，或执行
 `adb shell settings put secure enabled_accessibility_services "com.detox.spelllock/com.detox.spelllock.AppAccessibilityService:…"` 后
 `settings put secure accessibility_enabled 1`。
+
+---
+
+## 12. 界面截图
+
+真机截图（vivo V2426A / Android 15，原生 1260×2800）。
+
+### 12.1 答题页：第一步选择题
+
+一次 10 个词，每题给英文单词 + 音标 + 4 个中文释义选项；选错的那项标红、正确项标绿，选错的词进入下一步拼写。
+
+![第一步：选择题](docs/screenshots/01-choice-quiz.png)
+
+### 12.2 目标应用上锁遮罩
+
+打开被拦截的应用时，整屏盖上无障碍悬浮层并吞掉所有触摸，只能「继续验证」或「先回桌面」。
+
+![上锁遮罩](docs/screenshots/02-lock-overlay.png)
+
+### 12.3 选择要拦截的应用
+
+列出手机上全部可启动应用（实测 182 个），支持搜索、全选/取消全选，勾选即锁；系统应用、桌面、输入法会标注「不受锁限制」且不可勾选。
+
+![选择应用](docs/screenshots/03-app-picker.png)
+
+### 12.4 自定义应用同样生效
+
+自定义应用的包名会被解析成中文名，遮罩与验证页都显示应用名而不是 `com.xxx`。
+
+![自定义应用被锁](docs/screenshots/04-custom-app-locked.png)
