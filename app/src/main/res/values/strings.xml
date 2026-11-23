@@ -28,4 +28,12 @@
     <string name="admin_pass">急事直通已放行</string>
     <string name="choice_correct">选对了</string>
     <string name="choice_wrong">选错了，稍后要拼写这个词</string>
+    <string name="admin_password_tip">急事直通密码：默认 123456，建议改成只有你知道的。</string>
+    <string name="admin_password_change">修改急事直通密码</string>
+    <string name="admin_password_title">修改急事直通密码</string>
+    <string name="admin_password_new_hint">新密码（4–20 位）</string>
+    <string name="admin_password_confirm_hint">再输一次新密码</string>
+    <string name="admin_password_saved">密码已更新</string>
+    <string name="admin_password_mismatch">两次输入不一致，再试一次</string>
+    <string name="admin_password_too_short">密码至少 4 位</string>
 </resources>

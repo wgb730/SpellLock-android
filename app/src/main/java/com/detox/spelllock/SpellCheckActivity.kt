@@ -671,7 +671,7 @@ class SpellCheckActivity : AppCompatActivity() {
             .setTitle(R.string.admin_dialog_title)
             .setView(input)
             .setPositiveButton(R.string.admin_ok) { _, _ ->
-                if (AppPrefs.isAdminPassword(input.text?.toString())) {
+                if (AppPrefs.isAdminPassword(this, input.text?.toString())) {
                     UnlockGate.grant(this)
                     OverlayLock.hide()
                     Toast.makeText(this, R.string.admin_pass, Toast.LENGTH_LONG).show()

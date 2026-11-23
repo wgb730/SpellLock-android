@@ -5,7 +5,7 @@
 
 - 验证通过后 **5 分钟**免检放行；哔哩哔哩 / 抖音 / 抖音精选三款应用**累计使用满 20 分钟**会再测一次
 - 出过的词 **5 天内不重复**；词库为考研核心高频词 600 个（ECDICT tag=ky 中最常用的词频段）
-- 急事直通：验证页底部输入管理员密码可直接放行
+- 急事直通：验证页底部输入密码可直接放行，**默认密码 123456**，可在主页「修改急事直通密码」改成自己的
 
 - 运行时**不依赖电脑端 ADB / Agent**，不 root，不用设备管理员，不用悬浮窗做主方案
 - 主方案：`AccessibilityService` 监听 `TYPE_WINDOW_STATE_CHANGED`
@@ -447,6 +447,33 @@ adb shell dumpsys activity activities | grep topResumedActivity          # 选�
 `adb shell settings put secure enabled_accessibility_services "com.detox.spelllock/com.detox.spelllock.AppAccessibilityService:…"` 后
 `settings put secure accessibility_enabled 1`。
 
+### 11.3 急事直通密码：默认 123456 + 主页可修改（2026-11-23 22:33 装机）
+
+原来密码是硬编码在 `AppPrefs.kt` 里的常量（开源前已换成中性默认值），现在改成「存在本机 SharedPreferences、可在主页改」。
+
+| # | 改动 | 实现 |
+|---|------|------|
+| 1 | 默认密码改为 `123456` | `AppPrefs.DEFAULT_ADMIN_PASSWORD = "123456"`；旧硬编码常量删除 |
+| 2 | 密码可改 | `adminPassword(context)` 先读 `spelllock_prefs` 里的 `admin_password`，没有或为空才回落默认值；`setAdminPassword(context, pwd)` 写入 |
+| 3 | 校验改为读当前密码 | `isAdminPassword(context, input)`：trim 后非空且等于当前密码才放行；调用点 `SpellCheckActivity` 的「急事直通」对话框 |
+| 4 | 主页新增修改入口 | `activity_main.xml` 加 `adminPasswordTip`（「急事直通密码：默认 123456，建议改成只有你知道的。」）与 `btnChangePassword`；`MainActivity.showChangePasswordDialog()` 用 AlertDialog 收两次输入，不足 4 位或两次不一致会提示，不落盘 |
+| 5 | 文案 | `strings.xml` 新增 `admin_password_tip / admin_password_change / admin_password_title / admin_password_new_hint / admin_password_confirm_hint / admin_password_saved / admin_password_mismatch / admin_password_too_short` |
+
+真机验证（vivo V2426A / Android 15）：
+
+| # | 验证项 | 结果 | 证据 |
+|---|--------|------|------|
+| 1 | 主页显示默认密码提示 + 修改按钮 | 通过 | 页面文本「急事直通密码：默认 123456，建议改成只有你知道的。」，按钮「修改急事直通密码」 |
+| 2 | 改密码流程能落盘 | 通过 | 对话框两个密码框，输入 `4567`/`4567` 点确认 → `shared_prefs/spelllock_prefs.xml` 出现 `<string name="admin_password">4567</string>` |
+| 3 | 用**新**密码放行 | 通过 | 验证页底部「急事直通」→ 输入 `4567` → 页面关闭回到主页，`unlock_gate.xml` 出现 `granted=true` |
+| 4 | 用**默认**密码放行 | 通过 | 清空 `admin_password` 键后重测：验证页输入 `123456` → 回到主页，`granted=true`、`used_millis=0` |
+| 5 | 输错密码不放行 | 通过 | 输入 `0000` → 仍停在 `SpellCheckActivity`，`unlock_gate.xml` 为 `<map />`（没有任何放行记录） |
+
+改动后 APK：`app/build/outputs/apk/debug/app-debug.apk`，5,879,697 字节，SHA-256 `4ba9ff2546636fa4e37465943ea1374a36726ff84908a1271a4954f3db823d23`（22:33:25 装机）。
+
+> 安全说明：密码存在 `/data/data/com.detox.spelllock/shared_prefs/spelllock_prefs.xml`，是**明文、只在本机**，root 或 adb 备份能读到。
+> 这是「防自己冲动」的机制，不是防攻击的安全边界；真要防别人，请配合系统应用锁 / 屏幕锁使用。
+
 ---
 
 ## 12. 界面截图
@@ -476,3 +503,18 @@ adb shell dumpsys activity activities | grep topResumedActivity          # 选�
 自定义应用的包名会被解析成中文名，遮罩与验证页都显示应用名而不是 `com.xxx`。
 
 ![自定义应用被锁](docs/screenshots/04-custom-app-locked.png)
+
+### 12.5 修改急事直通密码
+
+主页底部「修改急事直通密码」→ 两次输入一致且不少于 4 位才保存。
+
+![修改急事直通密码](docs/screenshots/05-change-password.png)
+
+---
+
+## 13. 许可证
+
+本项目以 **MIT License** 开源，见 [LICENSE](LICENSE)。你可以自由使用、修改、分发，包括商用；
+唯一要求是保留版权声明与许可声明。源码按「现状」提供，不附带任何担保。
+
+如果你基于它改了词库、改了界面或换了拦截对象，欢迎提 PR 或开 Issue 说一声。

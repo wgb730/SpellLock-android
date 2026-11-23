@@ -14,8 +14,9 @@ object AppPrefs {
     const val ANSWER_MODE_ON_ERROR = 1   // 答错后显示正确拼写，然后要求重拼（默认）
     const val ANSWER_MODE_ALWAYS = 2     // 一开始就显示正确拼写（先看再写）
 
-    /** 急事直通密码：输入后立刻放行，不答题。 */
-    private const val ADMIN_PASSWORD = "wgb2215766"
+    /** 急事直通密码：输入后立刻放行，不答题。默认 123456，可在主页改。 */
+    private const val KEY_ADMIN_PASSWORD = "admin_password"
+    const val DEFAULT_ADMIN_PASSWORD = "123456"
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -43,6 +44,18 @@ object AppPrefs {
         prefs(context).edit().putBoolean(KEY_CHOICE_MODE, enabled).apply()
     }
 
-    fun isAdminPassword(input: String?): Boolean =
-        input != null && input.trim() == ADMIN_PASSWORD
+    /** 当前生效的急事直通密码（没改过就是默认 123456）。 */
+    fun adminPassword(context: Context): String {
+        val saved = prefs(context).getString(KEY_ADMIN_PASSWORD, null)
+        return if (saved.isNullOrBlank()) DEFAULT_ADMIN_PASSWORD else saved
+    }
+
+    fun setAdminPassword(context: Context, password: String) {
+        prefs(context).edit().putString(KEY_ADMIN_PASSWORD, password).apply()
+    }
+
+    fun isAdminPassword(context: Context, input: String?): Boolean {
+        val text = input?.trim()
+        return !text.isNullOrEmpty() && text == adminPassword(context)
+    }
 }

@@ -13,12 +13,14 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.RadioGroup
 import android.provider.Settings
+import android.text.InputType
 import android.text.TextUtils
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.AppCompatButton
 import androidx.core.content.ContextCompat
@@ -135,6 +137,10 @@ class MainActivity : AppCompatActivity() {
             refreshGraceText()
             toast("已清除宽限期，下次打开目标 App 会立即验证")
         }
+
+        findViewById<Button>(R.id.btnChangePassword).setOnClickListener {
+            showChangePasswordDialog()
+        }
     }
 
     override fun onResume() {
@@ -203,6 +209,45 @@ class MainActivity : AppCompatActivity() {
             "本次放行已用完：下次打开目标 App 需要重新验证"
         }
         graceStatus.text = "免检放行剩余：" + grace + " 秒\n" + usageText
+    }
+
+    /** 修改急事直通密码：两次输入一致且不少于 4 位才保存。 */
+    private fun showChangePasswordDialog() {
+        val pad = (resources.displayMetrics.density * 20).toInt()
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, 0)
+        }
+        val inputNew = EditText(this).apply {
+            hint = getString(R.string.admin_password_new_hint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            maxLines = 1
+        }
+        val inputConfirm = EditText(this).apply {
+            hint = getString(R.string.admin_password_confirm_hint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            maxLines = 1
+        }
+        container.addView(inputNew)
+        container.addView(inputConfirm)
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.admin_password_title)
+            .setView(container)
+            .setPositiveButton(R.string.admin_password_change) { _, _ ->
+                val first = inputNew.text?.toString()?.trim().orEmpty()
+                val second = inputConfirm.text?.toString()?.trim().orEmpty()
+                when {
+                    first.length < 4 -> toast(getString(R.string.admin_password_too_short))
+                    first != second -> toast(getString(R.string.admin_password_mismatch))
+                    else -> {
+                        AppPrefs.setAdminPassword(this, first)
+                        toast(getString(R.string.admin_password_saved))
+                    }
+                }
+            }
+            .setNegativeButton(R.string.admin_cancel, null)
+            .show()
     }
 
     private fun buildTargetListText(): String {
