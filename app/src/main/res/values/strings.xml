@@ -57,4 +57,25 @@
     <string name="time_usage_hint">目标应用累计可用时长，用满后必须重新验证（累计计时，切走不暂停清零）。</string>
     <string name="time_minutes_hint">分钟</string>
     <string name="time_saved">已保存：%1$d 分钟</string>
+
+    <!-- 守护与自愈 -->
+    <string name="guard_status_format">守护进程：%1$s · 无障碍：%2$s</string>
+    <string name="guard_running">运行中</string>
+    <string name="guard_stopped">未运行（打开 App 会自动拉起）</string>
+    <string name="guard_a11y_on">已开启</string>
+    <string name="guard_a11y_off">已被系统关闭</string>
+    <string name="guard_repair">修复无障碍</string>
+    <string name="guard_battery">电池白名单</string>
+    <string name="guard_pause">暂停自动修复</string>
+    <string name="guard_resume">恢复自动修复</string>
+    <string name="guard_paused">已暂停自动修复</string>
+    <string name="guard_repaired">已自动重新开启无障碍服务（1 秒内生效）</string>
+    <string name="guard_repair_manual">没有自动修复权限，已打开无障碍设置，请手动开启「拼写自律锁」</string>
+    <string name="guard_battery_no_permission">无法直接申请电池白名单，请在系统设置里给本应用「允许后台高耗电 / 自启动」</string>
+    <string name="guard_lost_title">无障碍被系统关掉了</string>
+    <string name="guard_lost_text">拼写自律锁的保护暂时失效。点这条通知去无障碍设置里重新打开，或回到 App 点「修复无障碍」。</string>
+    <string name="guard_notification_title">拼写自律锁守护中</string>
+    <string name="guard_notification_text">保持无障碍在线，目标 App 才会被拦；这条通知可以忽略。</string>
+    <string name="guard_channel_name">后台守护</string>
+    <string name="guard_channel_desc">常驻通知：让系统少杀进程，并在无障碍被关掉时提醒你。</string>
 </resources>

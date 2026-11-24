@@ -11,11 +11,23 @@ object AppPrefs {
     private const val KEY_WORD_BOOK = "word_book"
     private const val KEY_GRACE_MINUTES = "grace_minutes"
     private const val KEY_USAGE_MINUTES = "usage_minutes"
+    private const val KEY_GUARD_ENABLED = "guard_enabled"
 
     /** 验证页答案展示方式 */
     const val ANSWER_MODE_NEVER = 0      // 不显示（纯考核）
     const val ANSWER_MODE_ON_ERROR = 1   // 答错后显示正确拼写，然后要求重拼（默认）
     const val ANSWER_MODE_ALWAYS = 2     // 一开始就显示正确拼写（先看再写）
+
+    /**
+     * 守护开关：true = 无障碍被系统关掉时自动写回。
+     * 设成 false 后守护服务不再动手（用户想彻底停用时用，避免被"自动打开"惹烦）。
+     */
+    fun guardEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_GUARD_ENABLED, true)
+
+    fun setGuardEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_GUARD_ENABLED, enabled).apply()
+    }
 
     /** 急事直通密码：输入后立刻放行，不答题。默认 123456，可在主页改。 */
     private const val KEY_ADMIN_PASSWORD = "admin_password"

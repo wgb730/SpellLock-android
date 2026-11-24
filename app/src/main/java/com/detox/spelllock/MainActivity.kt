@@ -38,6 +38,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var accessibilityStatus: TextView
+    private lateinit var guardStatus: TextView
+    private lateinit var btnGuardToggle: Button
     private lateinit var notificationStatus: TextView
     private lateinit var targetList: TextView
     private lateinit var scannerResult: TextView
@@ -74,6 +76,8 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         accessibilityStatus = findViewById(R.id.accessibilityStatus)
+        guardStatus = findViewById(R.id.guardStatus)
+        btnGuardToggle = findViewById(R.id.btnGuardToggle)
         notificationStatus = findViewById(R.id.notificationStatus)
         targetList = findViewById(R.id.targetList)
         scannerResult = findViewById(R.id.scannerResult)
@@ -98,6 +102,29 @@ class MainActivity : AppCompatActivity() {
             } catch (t: Throwable) {
                 toast("无法打开无障碍设置，请手动到 设置 -> 无障碍")
             }
+        }
+
+        GuardService.start(this)
+        // 前台服务是异步起来的，稍等一下再刷一次界面，否则守护状态会一直显示「未运行」
+        handler.postDelayed({ refreshAll() }, 800L)
+
+        findViewById<Button>(R.id.btnRepairAccessibility).setOnClickListener {
+            repairAccessibility()
+        }
+
+        findViewById<Button>(R.id.btnBatteryWhitelist).setOnClickListener {
+            openBatteryWhitelist()
+        }
+
+        btnGuardToggle.setOnClickListener {
+            val next = !AppPrefs.guardEnabled(this)
+            AppPrefs.setGuardEnabled(this, next)
+            if (next) {
+                GuardService.start(this)
+                if (!A11yGuard.isEnabled(this) && A11yGuard.canWriteSecure(this)) A11yGuard.restore(this)
+            }
+            toast(if (next) "已恢复自动修复" else "已暂停自动修复（关掉无障碍后不会再被自动打开）")
+            handler.postDelayed({ refreshAll() }, 400L)
         }
 
         findViewById<Button>(R.id.btnNotification).setOnClickListener {
@@ -244,6 +271,18 @@ class MainActivity : AppCompatActivity() {
         switchChoiceMode.setOnCheckedChangeListener { _, checked ->
             AppPrefs.setChoiceMode(this, checked)
         }
+
+        val guardOn = AppPrefs.guardEnabled(this)
+        btnGuardToggle.text = getString(if (guardOn) R.string.guard_pause else R.string.guard_resume)
+        guardStatus.text = getString(
+            R.string.guard_status_format,
+            when {
+                !guardOn -> getString(R.string.guard_paused)
+                GuardService.running -> getString(R.string.guard_running)
+                else -> getString(R.string.guard_stopped)
+            },
+            if (accessibilityOn) getString(R.string.guard_a11y_on) else getString(R.string.guard_a11y_off)
+        )
 
         targetList.text = buildTargetListText()
         extraTargetsText.text = buildExtraTargetsText()
@@ -597,6 +636,41 @@ class MainActivity : AppCompatActivity() {
 
     private fun dp(value: Int): Int {
         return (value * resources.displayMetrics.density + 0.5f).toInt()
+    }
+
+    /** 无障碍被系统关掉时的一键修复：有 WRITE_SECURE_SETTINGS 就直接写回，没有就跳设置页。 */
+    private fun repairAccessibility() {
+        if (A11yGuard.isEnabled(this)) {
+            toast("无障碍服务运行正常，不用修")
+            refreshAll()
+            return
+        }
+        if (A11yGuard.canWriteSecure(this) && A11yGuard.restore(this)) {
+            toast(getString(R.string.guard_repaired))
+            handler.postDelayed({ refreshAll() }, 1500L)
+            return
+        }
+        toast(getString(R.string.guard_repair_manual))
+        runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            .onFailure { toast("无法打开无障碍设置，请手动去 设置 -> 无障碍") }
+    }
+
+    /** 申请电池优化白名单：系统不再把本应用当成"可随时杀"的后台应用。 */
+    private fun openBatteryWhitelist() {
+        val power = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        if (power?.isIgnoringBatteryOptimizations(packageName) == true) {
+            toast("已经在电池白名单里了")
+            return
+        }
+        val direct = Intent(
+            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+            Uri.parse("package:" + packageName)
+        )
+        val ok = runCatching { startActivity(direct) }.isSuccess
+        if (!ok) {
+            toast(getString(R.string.guard_battery_no_permission))
+            runCatching { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+        }
     }
 
     private fun toast(message: String) {

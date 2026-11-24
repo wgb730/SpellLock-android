@@ -56,10 +56,15 @@ class AppAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         OverlayLock.attach(this)
         Log.i(TAG, "无障碍服务已连接")
+        // 服务连上就把守护进程拉起来：它负责在服务被系统删掉时自动写回设置
+        GuardService.start(this)
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
         Log.w(TAG, "无障碍服务已断开，保护失效")
+        // 断连时让守护进程去看一眼：是临时解绑（返回 true 会自动重绑），
+        // 还是系统把本服务从设置里删了（那就得写回设置或提醒用户）
+        GuardService.start(this)
         stopAccruing()
         handler.removeCallbacksAndMessages(null)
         pendingFallback = null

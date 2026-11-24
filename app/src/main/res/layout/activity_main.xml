@@ -25,7 +25,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="多巴胺戒断工具：打开目标 App 前，先答对 10 个考研核心词（选择题 + 拼写）。"
+            android:text="多巴胺戒断工具：打开目标 App 前，先答对 10 个单词（选择题 + 拼写），词书可在下方切换。"
             android:textColor="@color/text_secondary"
             android:textSize="14sp" />
 
@@ -55,6 +55,62 @@
             android:text="打开无障碍设置"
             android:textAllCaps="false"
             android:textColor="@android:color/white" />
+
+        <TextView
+            android:id="@+id/guardStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnRepairAccessibility"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_secondary_button"
+                android:text="@string/guard_repair"
+                android:textAllCaps="false"
+                android:textColor="@color/accent"
+                android:textSize="13sp" />
+
+            <Space
+                android:layout_width="10dp"
+                android:layout_height="1dp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnBatteryWhitelist"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_secondary_button"
+                android:text="@string/guard_battery"
+                android:textAllCaps="false"
+                android:textColor="@color/accent"
+                android:textSize="13sp" />
+
+            <Space
+                android:layout_width="10dp"
+                android:layout_height="1dp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnGuardToggle"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_secondary_button"
+                android:text="@string/guard_pause"
+                android:textAllCaps="false"
+                android:textColor="@color/accent"
+                android:textSize="13sp" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/notificationStatus"

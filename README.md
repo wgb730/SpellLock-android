@@ -596,10 +596,65 @@ adb shell dumpsys activity activities | grep topResumedActivity          # 选�
 |---|---|---|
 | v1.0.0 | 首版：考研 600 词、答题解锁、遮罩、急事直通密码 | 5,879,697 B |
 | v1.1.0 | 三本词书 + 自定义导入 + 免检/使用时间可调（versionCode 2） | 5,982,060 B |
+| v1.1.1 | 无障碍掉线自愈 + 后台守护服务（versionCode 3） | 6,079,548 B |
 
 ---
 
-## 14. 许可证
+## 14. v1.1.1：无障碍掉了会自己回来（2026-11-24 装机）
+
+### 14.1 为什么会「有时候就掉了」
+
+用例：vivo V2426A / Android 15，正常设置好无障碍服务后，用 `adb shell am force-stop com.detox.spelllock` 模拟国产 ROM 回收后台进程，3 秒后观察系统设置：
+
+```
+settings get secure accessibility_enabled            → 0
+settings get secure enabled_accessibility_services   → 只剩其它应用，本应用被删掉
+```
+
+也就是说：**系统 force-stop 一个应用时，会把它的无障碍服务从 Secure 设置里直接抹掉**，并把总开关置 0。这种情况下 `AccessibilityService.onUnbind()` 根本不会回调，所以「监听断连再提示」这条路走不通——服务不在了，谁都不在。
+
+### 14.2 怎么修的：一个独立的前台守护服务
+
+| 组件 | 作用 |
+|---|---|
+| `A11yGuard.kt` | 只做三件事：查服务还在不在（设置里有 + 系统真绑定了）、查总开关是不是 1、把本服务写回 `enabled_accessibility_services` 并置 `accessibility_enabled=1` |
+| `GuardService.kt` | 前台常驻通知（id 4200），每 20 秒自检一次；发现掉了就写回设置；没有写权限就发一条高优先级通知（id 4210，点一下直达无障碍设置）；恢复正常后自动收掉这条提醒 |
+| `BootReceiver.kt` | 开机自启：串 BOOT_COMPLETED → 拉起守护服务 + 尝试写回设置 |
+| 启动点 | App 启动、无障碍服务连上、无障碍服务断开、开机，四个时机都会拉起守护服务 |
+| 开关 | 主页「暂停自动修复 / 恢复自动修复」（prefs 键 `guard_enabled`）：关掉后守护服务只看不动手，方便你真的想停用的时候不被它"自动打开" |
+
+写回系统设置需要 `WRITE_SECURE_SETTINGS`，这是签名/开发级权限，普通安装拿不到，**用 adb 授权一次即可**（重启不丢，卸载重装要重授权）：
+
+```bash
+adb shell pm grant com.detox.spelllock android.permission.WRITE_SECURE_SETTINGS
+# 顺带把应用放进电池白名单，减少被回收（App 主页也有「电池白名单」按钮）
+adb shell cmd deviceidle whitelist +com.detox.spelllock
+```
+
+没授权也能用：守护服务会退化成「发通知让你点一下去开启」，不会静默失败。
+
+### 14.3 真机验证（vivo V2426A / Android 15，2026-11-24 16:08–16:14）
+
+| 场景 | 操作 | 结果 |
+|---|---|---|
+| 进程被杀 | `am force-stop com.detox.spelllock` | 服务从设置里被删、`accessibility_enabled=0`（复现成功） |
+| 重开 App 自愈 | 重新启动 MainActivity | 0.6 秒内写回设置（日志 `已自动恢复无障碍服务` 16:08:50.694），1 秒内重新绑定（16:08:51.366） |
+| 运行中被关 | 直接把服务从设置里删掉（不动进程） | `onUnbind` 6 毫秒内写回，23 毫秒内重新绑定（16:09:24.963 → .969 → .992） |
+| 没给权限 | `pm revoke android.permission.WRITE_SECURE_SETTINGS` 后再删服务 | 不改设置，改发通知（id 4210），日志 `无障碍服务不见了，且没有写权限，发通知引导用户手动开启` |
+| 恢复后收尾 | 恢复权限与服务 | 那条提醒通知自动消失（`dumpsys notification` 里 4210 计数回到 0） |
+| 锁定是否还灵 | 启动 `tv.danmaku.bili` | `topResumedActivity=com.detox.spelllock/.SpellCheckActivity`，拦截照常生效 |
+| 主页状态 | 打开 App | 显示「守护进程：运行中 · 无障碍：已开启」 |
+| 暂停自动修复 | 点主页「暂停自动修复」，再删掉无障碍服务，等 25 秒 | `guard_enabled=false`；设置没被写回（`accessibility_enabled=0`，列表里没有本应用），守护确实停手了 |
+| 恢复自动修复 | 点「恢复自动修复」 | `guard_enabled=true`；12 秒内服务被写回并重新绑定（16:17:03） |
+
+### 14.4 仍然存在的边界（如实说明）
+
+- **进程被杀期间锁是失效的**：守护服务也在同一个进程里，进程没了它也没了。它能在「App 再次被拉起」或「开机」时把服务修回来，但修不了一个已经死掉的进程。要真正抗杀，得靠系统的「自启动 / 后台高耗电白名单」，所以主页留了「电池白名单」按钮。
+- 首次安装后必须手动开一次无障碍（这是 Android 的安全设计，任何非 root 应用都绕不过）；之后才轮到守护服务接管。
+- **只要给了写权限，它会一直把服务写回来**：你手动在系统设置里关掉无障碍，20 秒内也会被自动打开——这是这个工具的设定（自控工具如果一关就永久失效，等于没有）。真想停用，先在主页点「暂停自动修复」，它就不动手了。
+- 「修复无障碍」按钮是手动兜底：有写权限就直接写回并提示已修复；没权限就 Toast 提示 + 跳系统无障碍设置，让你手动开。
+
+## 15. 许可证
 
 本项目以 **MIT License** 开源，见 [LICENSE](LICENSE)。你可以自由使用、修改、分发，包括商用；
 唯一要求是保留版权声明与许可声明。源码按「现状」提供，不附带任何担保。
