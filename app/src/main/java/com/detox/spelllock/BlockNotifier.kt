@@ -83,7 +83,7 @@ object BlockNotifier {
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_guard)
             .setContentTitle("你打开了" + displayName)
-            .setContentText("先完成这组考研核心词（选择题 + 拼写），才能继续使用。点此进入。")
+            .setContentText("先完成这组单词（选择题 + 拼写），才能继续使用。点此进入。")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)

@@ -2,14 +2,14 @@
 <resources>
     <string name="app_name">拼写自律锁</string>
     <string name="service_label">拼写自律锁 · 前台应用检测</string>
-    <string name="accessibility_service_description">用于识别哔哩哔哩、抖音等目标应用是否被打开。检测到目标应用时会立刻弹出全屏验证页，答对 10 个考研核心词才能继续使用；验证通过后 5 分钟内不重复拦截，三款目标应用累计使用满 20 分钟会再测一次。本服务不读取窗口内容，也不会上传任何数据。</string>
+    <string name="accessibility_service_description">用于识别哔哩哔哩、抖音等目标应用是否被打开。检测到目标应用时会立刻弹出全屏验证页，答对 10 个单词才能继续使用；验证通过后在免检间隔内不重复拦截，目标应用累计使用满使用上限会再测一次（两个时长都能在主页自定义）。本服务不读取窗口内容，也不会上传任何数据。</string>
 
-    <string name="verify_title">先答对 10 个考研核心词</string>
-    <string name="verify_subtitle">下面的中文释义来自考研英语核心词汇，请输入对应的英文单词（忽略大小写）。</string>
+    <string name="verify_title">先答对 10 个单词</string>
+    <string name="verify_subtitle">下面的中文释义来自你选的词书，请输入对应的英文单词（忽略大小写）。</string>
     <string name="verify_button">验证并继续</string>
     <string name="verify_footnote">没有跳过按钮。全部答对才会关闭本页；验证通过后 5 分钟内不重复拦截，三款应用累计使用满 20 分钟会再测一次。</string>
     <string name="spell_error">拼写错误，请重试</string>
-    <string name="loading_words">正在加载考研词表…</string>
+    <string name="loading_words">正在加载词表…</string>
     <string name="retry_load">重新加载词表</string>
     <string name="back_to_home">回到桌面（不会解除限制）</string>
     <string name="input_hint">输入英文单词</string>
@@ -36,4 +36,25 @@
     <string name="admin_password_saved">密码已更新</string>
     <string name="admin_password_mismatch">两次输入不一致，再试一次</string>
     <string name="admin_password_too_short">密码至少 4 位</string>
+
+    <string name="book_section">词书</string>
+    <string name="book_import">导入自定义词书（TXT）</string>
+    <string name="book_custom">自定义词书</string>
+    <string name="time_section">时间设置</string>
+    <string name="time_grace_button">免检间隔（分钟）</string>
+    <string name="time_usage_button">使用上限（分钟）</string>
+    <string name="time_save">保存</string>
+    <string name="time_invalid">请输入 1–%1$d 之间的整数分钟</string>
+    <string name="book_switched">已切换到「%1$s」，共 %2$d 词</string>
+    <string name="book_imported">已导入「%1$s」：%2$d 个词，并切换到这本词书</string>
+    <string name="book_import_failed">导入失败：%1$s</string>
+    <string name="book_status_format">当前词书：%1$s（%2$d 词）</string>
+    <string name="book_status_failed">当前词书：%1$s（读取失败：%2$s）</string>
+    <string name="time_status_format">免检间隔 %1$d 分钟 · 使用上限 %2$d 分钟</string>
+    <string name="time_grace_dialog">免检间隔（1–120 分钟）</string>
+    <string name="time_usage_dialog">使用上限（1–480 分钟）</string>
+    <string name="time_grace_hint">验证通过后，这段时间内再打开目标应用不再拦截。</string>
+    <string name="time_usage_hint">目标应用累计可用时长，用满后必须重新验证（累计计时，切走不暂停清零）。</string>
+    <string name="time_minutes_hint">分钟</string>
+    <string name="time_saved">已保存：%1$d 分钟</string>
 </resources>

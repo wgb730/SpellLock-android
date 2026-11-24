@@ -7,6 +7,7 @@ import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -15,11 +16,14 @@ import android.widget.RadioGroup
 import android.provider.Settings
 import android.text.InputType
 import android.text.TextUtils
+import android.util.Log
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.AppCompatButton
@@ -29,6 +33,7 @@ import com.google.android.material.materialswitch.MaterialSwitch
 class MainActivity : AppCompatActivity() {
 
     companion object {
+        private const val TAG = "SpellLock"
         private const val REQUEST_NOTIFICATION = 1001
     }
 
@@ -42,8 +47,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var graceStatus: TextView
     private lateinit var switchFallback: MaterialSwitch
     private lateinit var switchChoiceMode: MaterialSwitch
+    private lateinit var bookStatus: TextView
+    private lateinit var timeStatus: TextView
+    private lateinit var btnBookKaoyan: AppCompatButton
+    private lateinit var btnBookCet4: AppCompatButton
+    private lateinit var btnBookCet6: AppCompatButton
+    private lateinit var btnBookCustom: AppCompatButton
 
     private val handler = Handler(Looper.getMainLooper())
+
+    /** 导入自定义词书：用系统文件选择器挑一个 txt（只读取一次，内容落到应用私有目录）。 */
+    private val importBookLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) importBook(uri)
+        }
 
     private val graceTicker = object : Runnable {
         override fun run() {
@@ -66,6 +83,12 @@ class MainActivity : AppCompatActivity() {
         graceStatus = findViewById(R.id.graceStatus)
         switchFallback = findViewById(R.id.switchFallback)
         switchChoiceMode = findViewById(R.id.switchChoiceMode)
+        bookStatus = findViewById(R.id.bookStatus)
+        timeStatus = findViewById(R.id.timeStatus)
+        btnBookKaoyan = findViewById(R.id.btnBookKaoyan)
+        btnBookCet4 = findViewById(R.id.btnBookCet4)
+        btnBookCet6 = findViewById(R.id.btnBookCet6)
+        btnBookCustom = findViewById(R.id.btnBookCustom)
 
         scannerResult.text = "可在电脑上执行：adb shell pm list packages | grep -i aweme"
 
@@ -141,6 +164,38 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnChangePassword).setOnClickListener {
             showChangePasswordDialog()
         }
+
+        btnBookKaoyan.setOnClickListener { switchBook(WordRepository.BOOK_KAOYAN) }
+        btnBookCet4.setOnClickListener { switchBook(WordRepository.BOOK_CET4) }
+        btnBookCet6.setOnClickListener { switchBook(WordRepository.BOOK_CET6) }
+        btnBookCustom.setOnClickListener { switchBook(WordRepository.BOOK_CUSTOM) }
+        findViewById<Button>(R.id.btnBookImport).setOnClickListener { pickBookFile() }
+
+        findViewById<Button>(R.id.btnSetGrace).setOnClickListener {
+            showMinutesDialog(
+                getString(R.string.time_grace_dialog),
+                AppPrefs.graceMinutes(this),
+                AppPrefs.MAX_GRACE_MINUTES,
+                getString(R.string.time_grace_hint)
+            ) { minutes ->
+                AppPrefs.setGraceMinutes(this, minutes)
+                refreshTimeUi()
+                toast(getString(R.string.time_saved, minutes))
+            }
+        }
+
+        findViewById<Button>(R.id.btnSetUsage).setOnClickListener {
+            showMinutesDialog(
+                getString(R.string.time_usage_dialog),
+                AppPrefs.usageMinutes(this),
+                AppPrefs.MAX_USAGE_MINUTES,
+                getString(R.string.time_usage_hint)
+            ) { minutes ->
+                AppPrefs.setUsageMinutes(this, minutes)
+                refreshTimeUi()
+                toast(getString(R.string.time_saved, minutes))
+            }
+        }
     }
 
     override fun onResume() {
@@ -193,6 +248,8 @@ class MainActivity : AppCompatActivity() {
         targetList.text = buildTargetListText()
         extraTargetsText.text = buildExtraTargetsText()
         syncAnswerModeUi()
+        refreshBookUi()
+        refreshTimeUi()
         refreshGraceText()
     }
 
@@ -200,7 +257,7 @@ class MainActivity : AppCompatActivity() {
         val grace = UnlockGate.remainingSeconds(this)
         val usageLeftSec = UnlockGate.usageRemainingMillis(this) / 1000L
         val usedSec = UnlockGate.usedMillis(this) / 1000L
-        val limitSec = UnlockGate.USAGE_LIMIT_MS / 1000L
+        val limitSec = UnlockGate.usageLimitMs(this) / 1000L
         val usageText = if (usageLeftSec > 0L) {
             "本次放行：已用 " + (usedSec / 60L) + " 分 " + (usedSec % 60L) + " 秒，还可再用 " +
                 (usageLeftSec / 60L) + " 分 " + (usageLeftSec % 60L) +
@@ -391,6 +448,155 @@ class MainActivity : AppCompatActivity() {
                 )
             )
         }
+    }
+
+    // ---------- 词书切换 / 导入 ----------
+
+    private fun switchBook(id: String) {
+        val book = WordRepository.bookById(this, id)
+        if (book == null) {
+            toast("这本词书不存在")
+            return
+        }
+        Thread {
+            try {
+                WordRepository.selectBook(applicationContext, id)
+                val count = WordRepository.loadBook(applicationContext, id).size
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    refreshBookUi()
+                    toast(getString(R.string.book_switched, book.title, count))
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "切换词书失败", t)
+                val message = t.message ?: t.javaClass.simpleName
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) toast(message)
+                }
+            }
+        }.start()
+    }
+
+    private fun pickBookFile() {
+        try {
+            importBookLauncher.launch(arrayOf("text/plain", "*/*"))
+        } catch (t: Throwable) {
+            Log.e(TAG, "打开文件选择器失败", t)
+            toast("这台机器没有可用的文件选择器")
+        }
+    }
+
+    private fun importBook(uri: Uri) {
+        Thread {
+            try {
+                val text = contentResolver.openInputStream(uri)?.use { input ->
+                    input.bufferedReader(Charsets.UTF_8).readText()
+                } ?: throw IllegalStateException("读不到文件内容")
+                val count = WordRepository.importCustomBook(applicationContext, text)
+                val title = WordRepository.currentBook(applicationContext).title
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    refreshBookUi()
+                    toast(getString(R.string.book_imported, title, count))
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "导入词书失败", t)
+                val message = t.message ?: t.javaClass.simpleName
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        toast(getString(R.string.book_import_failed, message))
+                    }
+                }
+            }
+        }.start()
+    }
+
+    private fun refreshBookUi() {
+        val current = WordRepository.currentBook(this)
+        bookStatus.text = try {
+            getString(
+                R.string.book_status_format,
+                current.title,
+                WordRepository.loadBook(this, current.id).size
+            )
+        } catch (t: Throwable) {
+            getString(
+                R.string.book_status_failed,
+                current.title,
+                t.message ?: t.javaClass.simpleName
+            )
+        }
+
+        btnBookKaoyan.text = bookButtonText(WordRepository.BOOK_KAOYAN)
+        btnBookCet4.text = bookButtonText(WordRepository.BOOK_CET4)
+        btnBookCet6.text = bookButtonText(WordRepository.BOOK_CET6)
+        val hasCustom = WordRepository.hasCustomBook(this)
+        btnBookCustom.visibility = if (hasCustom) View.VISIBLE else View.GONE
+        if (hasCustom) {
+            btnBookCustom.text = bookButtonText(WordRepository.BOOK_CUSTOM)
+        }
+    }
+
+    private fun bookButtonText(id: String): String {
+        val book = WordRepository.bookById(this, id) ?: return ""
+        val mark = if (WordRepository.currentBookId(this) == id) "✓ " else ""
+        return mark + book.title
+    }
+
+    // ---------- 时间设置 ----------
+
+    private fun refreshTimeUi() {
+        timeStatus.text = getString(
+            R.string.time_status_format,
+            AppPrefs.graceMinutes(this),
+            AppPrefs.usageMinutes(this)
+        )
+    }
+
+    /** 分钟数输入框：1..max 的整数才保存。 */
+    private fun showMinutesDialog(
+        title: String,
+        current: Int,
+        max: Int,
+        hintText: String,
+        onSave: (Int) -> Unit
+    ) {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            this.hint = getString(R.string.time_minutes_hint)
+            setText(current.toString())
+            setSelection(text.length)
+        }
+        container.addView(input)
+        val tip = TextView(this).apply {
+            text = hintText
+            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
+            textSize = 13f
+            setPadding(0, dp(8), 0, 0)
+        }
+        container.addView(tip)
+
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(container)
+            .setPositiveButton(R.string.time_save) { _, _ ->
+                val value = input.text?.toString()?.trim()?.toIntOrNull()
+                if (value == null || value < AppPrefs.MIN_MINUTES || value > max) {
+                    toast(getString(R.string.time_invalid, max))
+                    return@setPositiveButton
+                }
+                onSave(value)
+            }
+            .setNegativeButton(R.string.admin_cancel, null)
+            .show()
+    }
+
+    private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density + 0.5f).toInt()
     }
 
     private fun toast(message: String) {

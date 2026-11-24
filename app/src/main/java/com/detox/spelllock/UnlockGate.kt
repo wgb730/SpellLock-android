@@ -6,8 +6,9 @@ import android.provider.Settings
 
 /**
  * 放行状态记录（两个量）：
- * 1) 免检放行：验证通过后 5 分钟内不重复弹验证（避免连续切换应用时反复打断）。
- * 2) 累计可用时长：哔哩哔哩 / 抖音 / 抖音精选 三个应用合计使用满 20 分钟，必须重新验证。
+ * 1) 免检放行：验证通过后在「免检间隔」内不重复弹验证（默认 5 分钟，主页可改）。
+ * 2) 累计可用时长：哔哩哔哩 / 抖音 / 抖音精选 三个应用合计使用满「使用上限」（默认 20 分钟，主页可改），
+ *    必须重新验证。
  *    只有目标应用在前台时才计时，切到别处不计；验证通过后计数清零。
  *
  * 同时记录 elapsedRealtime 和开机计数（BOOT_COUNT）：
@@ -16,11 +17,11 @@ import android.provider.Settings
  */
 object UnlockGate {
 
-    /** 验证通过后的免检放行时长：5 分钟 */
-    const val GRACE_PERIOD_MS = 5L * 60L * 1000L
+    /** 验证通过后的免检放行时长，可在主页「时间设置」改（默认 5 分钟）。 */
+    fun gracePeriodMs(context: Context): Long = AppPrefs.graceMinutes(context) * 60_000L
 
-    /** 三款目标应用累计可用时长：20 分钟，用完必须重测 */
-    const val USAGE_LIMIT_MS = 20L * 60L * 1000L
+    /** 目标应用累计可用时长，可在主页「时间设置」改（默认 20 分钟）。 */
+    fun usageLimitMs(context: Context): Long = AppPrefs.usageMinutes(context) * 60_000L
 
     private const val FILE = "unlock_gate"
     private const val KEY_LAST_UNLOCK_ELAPSED = "last_unlock_elapsed"
@@ -77,7 +78,7 @@ object UnlockGate {
         val p = prefs(context)
         val used = p.getLong(KEY_USED_MILLIS, 0L) + millis
         val edit = p.edit().putLong(KEY_USED_MILLIS, used)
-        if (used >= USAGE_LIMIT_MS) {
+        if (used >= usageLimitMs(context)) {
             edit.putBoolean(KEY_GRANTED, false)
         }
         edit.apply()
@@ -108,23 +109,23 @@ object UnlockGate {
         }
         val p = prefs(context)
         if (!p.getBoolean(KEY_GRANTED, false)) return false
-        return p.getLong(KEY_USED_MILLIS, 0L) < USAGE_LIMIT_MS
+        return p.getLong(KEY_USED_MILLIS, 0L) < usageLimitMs(context)
     }
 
     /** true = 累计用满 20 分钟，必须重新验证。 */
     fun isUsageExhausted(context: Context): Boolean {
         if (!isBootValid(context)) return false
         val p = prefs(context)
-        if (!p.getBoolean(KEY_GRANTED, false) && p.getLong(KEY_USED_MILLIS, 0L) < USAGE_LIMIT_MS) {
+        if (!p.getBoolean(KEY_GRANTED, false) && p.getLong(KEY_USED_MILLIS, 0L) < usageLimitMs(context)) {
             return false
         }
-        return p.getLong(KEY_USED_MILLIS, 0L) >= USAGE_LIMIT_MS
+        return p.getLong(KEY_USED_MILLIS, 0L) >= usageLimitMs(context)
     }
 
     /** 累计还能用多少毫秒；0 表示已用完或还没验证过。 */
     fun usageRemainingMillis(context: Context): Long {
         if (!hasActiveSession(context)) return 0L
-        val left = USAGE_LIMIT_MS - usedMillis(context)
+        val left = usageLimitMs(context) - usedMillis(context)
         return if (left > 0L) left else 0L
     }
 
@@ -142,7 +143,7 @@ object UnlockGate {
             revoke(context)
             return 0L
         }
-        val left = GRACE_PERIOD_MS - (now - last)
+        val left = gracePeriodMs(context) - (now - last)
         return if (left > 0L) left else 0L
     }
 }

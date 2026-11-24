@@ -691,7 +691,7 @@ class SpellCheckActivity : AppCompatActivity() {
     private fun unlockAndFinish() {
         UnlockGate.grant(this)
         OverlayLock.hide()
-        val minutes = UnlockGate.USAGE_LIMIT_MS / 60_000L
+        val minutes = UnlockGate.usageLimitMs(this) / 60_000L
         Toast.makeText(
             this,
             "验证通过：三款应用累计可用 " + minutes + " 分钟",

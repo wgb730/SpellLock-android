@@ -2,6 +2,7 @@ package com.detox.spelllock
 
 import android.content.Context
 import android.util.Log
+import java.io.File
 import java.util.Locale
 
 data class WordEntry(
@@ -13,58 +14,121 @@ data class WordEntry(
     val mnemonic: String = ""
 )
 
+/** 一本词书的元数据。builtin=true 的来自 assets，false 的是用户导入的 txt。 */
+data class WordBook(
+    val id: String,
+    val title: String,
+    val assetPath: String?,
+    val expectedWords: Int,
+    val builtin: Boolean = true
+)
+
 class WordLoadException(message: String) : Exception(message)
 
 /**
- * 词表加载 + 严格校验。
+ * 词表加载 + 严格校验（1.1.0 起支持多本词书）。
  *
- * 规则（硬性）：
- * 1. assets/words.txt 每行格式 word|中文释义|巧记（第三段巧记可省略；# 开头为注释）。
- * 2. 每个单词必须出现在 assets/kaoyan_core_set.txt（考研英语词表快照）里。
- * 3. 白名单本身必须是完整的考研词表快照：首行有来源标记、每行格式合法、词数精确等于
- *    EXPECTED_KAOYAN_WORDS。只要白名单被加词/删词/换文件，一律判为异常 ——
- *    这样"同时改两个文件"也绕不过词表范围校验。
- * 4. 任何异常都不放行；可用词不足 REQUIRED_WORDS 个同样判为异常。
+ * 词书来源：
+ * - 考研核心词 assets/books/kaoyan.txt：600 词 PDF 精选 + 懒笔记考研高频补充
+ * - 四级核心词 assets/books/cet4.txt：懒笔记四六级高频词表 cet4 句频 ≥ 8
+ * - 六级核心词 assets/books/cet6.txt：懒笔记四六级高频词表 cet6 句频 ≥ 8
+ * - 自定义词书 filesDir/custom_book.txt：用户在主页导入的 txt
+ *
+ * 格式：
+ * - 内置词书每行 word|音标|中文释义|巧记（巧记可空）
+ * - 自定义词书每行 单词|中文释义|巧记（巧记可空，也可用 Tab 分隔）
+ *
+ * 校验（硬性）：每一行的格式、单词字符合法性、每个内置词书的词数必须精确等于 EXPECTED_* 常量。
+ * 只要词表被加词/删词/换文件，一律判为异常 —— 这样"改一个文件就让验证失效"的尝试会被拦住。
+ * 任何异常都不放行；可用词不足 REQUIRED_WORDS 个同样判为异常。
  */
 object WordRepository {
 
     private const val TAG = "SpellLock"
-    private const val WORDS_ASSET = "words.txt"
-    private const val PHONETICS_ASSET = "phonetics.txt"
-    private const val KAOYAN_INDEX_ASSET = "kaoyan_core_set.txt"
 
     const val REQUIRED_WORDS = 10
+
+    const val BOOK_KAOYAN = "kaoyan"
+    const val BOOK_CET4 = "cet4"
+    const val BOOK_CET6 = "cet6"
+    const val BOOK_CUSTOM = "custom"
 
     /** 出现过的词 5 天内不再出现。 */
     private const val HISTORY_FILE = "word_history"
     private const val HISTORY_KEY = "recent"
     private const val HISTORY_TTL_MS = 5L * 24L * 60L * 60L * 1000L
 
-    /** 考研词表白名单快照的精确词数。改动白名单必须同步改这里 + 更新 README。 */
-    const val EXPECTED_KAOYAN_WORDS = 4801 // 与 assets/kaoyan_core_set.txt 的单词行数严格一致
+    private const val CUSTOM_FILE = "custom_book.txt"
+
+    /** 内置词书的精确词数。改动词表必须同步改这里 + 更新 README。 */
+    const val EXPECTED_KAOYAN_WORDS = 1483
+    const val EXPECTED_CET4_WORDS = 1616
+    const val EXPECTED_CET6_WORDS = 2143
+
+    private val BUILTIN_BOOKS = listOf(
+        WordBook(BOOK_KAOYAN, "考研核心词", "books/kaoyan.txt", EXPECTED_KAOYAN_WORDS),
+        WordBook(BOOK_CET4, "四级核心词", "books/cet4.txt", EXPECTED_CET4_WORDS),
+        WordBook(BOOK_CET6, "六级核心词", "books/cet6.txt", EXPECTED_CET6_WORDS)
+    )
+
+    private val CUSTOM_BOOK = WordBook(BOOK_CUSTOM, "自定义词书", null, 0, builtin = false)
 
     private val WORD_PATTERN = Regex("[A-Za-z][A-Za-z'-]*")
-    private val KAOYAN_LINE_PATTERN = Regex("[a-z][a-z'-]*")
 
-    @Volatile
-    private var cache: List<WordEntry>? = null
+    /** id -> 已加载词表。切换词书时按 id 分开缓存。 */
+    private val cache = HashMap<String, List<WordEntry>>()
 
-    fun load(context: Context): List<WordEntry> {
-        cache?.let { return it }
+    /** 内置词书（不含自定义）。 */
+    fun builtinBooks(): List<WordBook> = BUILTIN_BOOKS
+
+    fun customBookFile(context: Context): File =
+        File(context.applicationContext.filesDir, CUSTOM_FILE)
+
+    fun hasCustomBook(context: Context): Boolean {
+        val file = customBookFile(context)
+        return file.isFile && file.length() > 0L
+    }
+
+    /** 当前可选的词书：三本内置 +（有导入过的）自定义。 */
+    fun books(context: Context): List<WordBook> =
+        if (hasCustomBook(context)) BUILTIN_BOOKS + CUSTOM_BOOK else BUILTIN_BOOKS
+
+    fun bookById(context: Context, id: String): WordBook? = books(context).firstOrNull { it.id == id }
+
+    fun currentBookId(context: Context): String {
+        val saved = AppPrefs.wordBook(context)
+        return if (bookById(context, saved) != null) saved else BOOK_KAOYAN
+    }
+
+    fun currentBook(context: Context): WordBook =
+        bookById(context, currentBookId(context)) ?: BUILTIN_BOOKS[0]
+
+    /** 切换词书：记到 prefs 并清掉加载缓存。 */
+    fun selectBook(context: Context, id: String) {
+        if (bookById(context, id) == null) throw WordLoadException("没有这本词书：" + id)
+        AppPrefs.setWordBook(context, id)
+        invalidateCache()
+        Log.i(TAG, "切换词书：" + id)
+    }
+
+    fun load(context: Context): List<WordEntry> = loadBook(context, currentBookId(context))
+
+    fun loadBook(context: Context, id: String): List<WordEntry> {
+        cache[id]?.let { return it }
         synchronized(this) {
-            cache?.let { return it }
-            val loaded = parseAndValidate(context.applicationContext)
-            cache = loaded
+            cache[id]?.let { return it }
+            val loaded = parseBook(context.applicationContext, id)
+            cache[id] = loaded
             return loaded
         }
     }
 
     fun invalidateCache() {
-        synchronized(this) { cache = null }
+        synchronized(this) { cache.clear() }
     }
 
     /**
-     * 抽 REQUIRED_WORDS 个不重复的考研词。
+     * 从当前词书抽 REQUIRED_WORDS 个不重复的词。
      * 5 天内出现过的词优先排除；排除后不够用时退回全量词表（宁可重复也不能少题）。
      * 抽中的词立刻写入历史，保证下次不再重复。任何异常都抛出，由验证页负责「不得放行」。
      */
@@ -83,10 +147,35 @@ object WordRepository {
         writeRecent(context, now, recent, picked.map { it.word.lowercase(Locale.ROOT) })
         Log.i(
             TAG,
-            "本次出题 " + picked.size + " 个词；5 天内已出现 " + recent.size +
-                " 个，可选新词 " + fresh.size + " 个"
+            "本次出题 " + picked.size + " 个词（词书 " + currentBookId(context) + "）；5 天内已出现 " +
+                recent.size + " 个，可选新词 " + fresh.size + " 个"
         )
         return picked
+    }
+
+    /**
+     * 导入自定义词书：先整篇校验，全部通过才落盘，并把当前词书切成自定义。
+     * 返回导入的单词数；格式有问题抛 WordLoadException（提示语可直接给用户看）。
+     */
+    fun importCustomBook(context: Context, raw: String): Int {
+        val entries = parseLines(raw, builtin = false)
+        if (entries.size < REQUIRED_WORDS) {
+            throw WordLoadException("词书里只有 " + entries.size + " 个词，至少要 " + REQUIRED_WORDS + " 个")
+        }
+        val normalized = entries.joinToString("\n") {
+            listOf(it.word, it.meaning, it.mnemonic).joinToString("|")
+        }
+        val file = customBookFile(context)
+        try {
+            file.writeText(normalized + "\n", Charsets.UTF_8)
+        } catch (t: Throwable) {
+            Log.e(TAG, "保存自定义词书失败", t)
+            throw WordLoadException("保存词书失败：" + (t.message ?: t.javaClass.simpleName))
+        }
+        invalidateCache()
+        AppPrefs.setWordBook(context, BOOK_CUSTOM)
+        Log.i(TAG, "导入自定义词书：" + entries.size + " 个词")
+        return entries.size
     }
 
     /** 读取 5 天内出现过的词（顺带把过期记录清掉）。 */
@@ -127,44 +216,40 @@ object WordRepository {
             .apply()
     }
 
-    private fun parseAndValidate(context: Context): List<WordEntry> {
-        val wordsText = readAsset(context, WORDS_ASSET)
-            ?: throw WordLoadException("缺少词表文件 assets/" + WORDS_ASSET)
-        val indexText = readAsset(context, KAOYAN_INDEX_ASSET)
-            ?: throw WordLoadException("缺少考研词汇校验文件 assets/" + KAOYAN_INDEX_ASSET)
+    private fun parseBook(context: Context, id: String): List<WordEntry> {
+        if (id == BOOK_CUSTOM) {
+            val file = customBookFile(context)
+            if (!file.isFile || file.length() == 0L) {
+                throw WordLoadException("还没有导入自定义词书")
+            }
+            val text = try {
+                file.readText(Charsets.UTF_8)
+            } catch (t: Throwable) {
+                Log.e(TAG, "读取自定义词书失败", t)
+                throw WordLoadException("读取自定义词书失败：" + (t.message ?: t.javaClass.simpleName))
+            }
+            val entries = parseLines(text, builtin = false)
+            if (entries.size < REQUIRED_WORDS) {
+                throw WordLoadException(
+                    "自定义词书只有 " + entries.size + " 个词，至少要 " + REQUIRED_WORDS + " 个"
+                )
+            }
+            Log.i(TAG, "自定义词书加载完成：" + entries.size + " 个词")
+            return entries
+        }
 
-        val kaoyanWords = parseKaoyanIndex(indexText)
-        if (kaoyanWords.size != EXPECTED_KAOYAN_WORDS) {
+        val book = bookById(context, id) ?: throw WordLoadException("未知词书：" + id)
+        val assetPath = book.assetPath ?: throw WordLoadException("词书缺少资源文件：" + id)
+        val text = readAsset(context, assetPath)
+            ?: throw WordLoadException("缺少词表文件 assets/" + assetPath)
+        val entries = parseLines(text, builtin = true)
+        if (entries.size != book.expectedWords) {
             throw WordLoadException(
-                "考研词汇校验文件异常：应为 " + EXPECTED_KAOYAN_WORDS + " 个词，实际 " +
-                    kaoyanWords.size + " 个。白名单被改动过（增删词都会让校验失效），请恢复原始文件。"
+                "词书「" + book.title + "」应为 " + book.expectedWords + " 个词，实际 " +
+                    entries.size + " 个；词表被改动过（增删词都会让校验失效），请恢复原始文件。"
             )
         }
-
-        val phonetics = parsePhonetics(readAsset(context, PHONETICS_ASSET))
-        val entries = parseWords(wordsText).map { entry ->
-            entry.copy(phonetic = phonetics[entry.word.lowercase(Locale.ROOT)] ?: "")
-        }
-        if (entries.isEmpty()) {
-            throw WordLoadException("词表为空，或格式不是 word|中文释义|巧记")
-        }
-
-        val outOfScope = entries.filter { it.word.lowercase(Locale.ROOT) !in kaoyanWords }
-        if (outOfScope.isNotEmpty()) {
-            val sample = outOfScope.take(5).joinToString("，") { it.word }
-            throw WordLoadException(
-                "词表异常：" + outOfScope.size + " 个词不在考研词汇表范围内（例如 " +
-                    sample + "）。请把范围外的词移出 assets/words.txt 后重试。"
-            )
-        }
-
-        if (entries.size < REQUIRED_WORDS) {
-            throw WordLoadException(
-                "可用考研词不足 " + REQUIRED_WORDS + " 个（当前 " + entries.size + " 个）"
-            )
-        }
-
-        Log.i(TAG, "词表校验通过：可用考研词 " + entries.size + " 个")
+        Log.i(TAG, "词书「" + book.title + "」校验通过：" + entries.size + " 个词")
         return entries
     }
 
@@ -177,66 +262,56 @@ object WordRepository {
         }
     }
 
-    /** 音标表是可选增强：文件缺失或个别词没有音标都不影响出题。 */
-    private fun parsePhonetics(text: String?): Map<String, String> {
-        if (text == null) return emptyMap()
-        val result = HashMap<String, String>()
-        text.lineSequence().forEach { raw ->
-            val line = raw.trim()
-            if (line.isEmpty() || line.startsWith("#")) return@forEach
-            val parts = line.split("|")
-            if (parts.size != 2) return@forEach
-            val word = parts[0].trim().lowercase(Locale.ROOT)
-            val ipa = parts[1].trim()
-            if (word.isNotEmpty() && ipa.isNotEmpty()) {
-                result[word] = ipa
-            }
-        }
-        return result
-    }
-
-    private fun parseKaoyanIndex(text: String): Set<String> {
-        // 来源标记：防止随便换一份"看起来像词表"的文件冒充考研词表
-        val firstLine = text.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
-        if (!firstLine.startsWith("#") || !firstLine.contains("考研词汇")) {
-            throw WordLoadException("考研词汇校验文件缺少来源标记（首行应标注「考研词汇」）")
-        }
-        val result = HashSet<String>(text.length / 6)
-        text.lineSequence().forEachIndexed { index, raw ->
-            val line = raw.trim()
-            if (line.isEmpty() || line.startsWith("#")) return@forEachIndexed
-            if (!KAOYAN_LINE_PATTERN.matches(line)) {
-                throw WordLoadException(
-                    "考研词汇校验文件格式错误：第 " + (index + 1) + " 行（" + line + "）"
-                )
-            }
-            result.add(line.lowercase(Locale.ROOT))
-        }
-        return result
-    }
-
-    private fun parseWords(text: String): List<WordEntry> {
+    /**
+     * 解析词表文本。
+     * builtin=true：word|音标|释义|巧记（音标、巧记都可空）
+     * builtin=false：单词|释义|巧记（也接受 Tab 分隔）
+     */
+    private fun parseLines(text: String, builtin: Boolean): List<WordEntry> {
         val map = LinkedHashMap<String, WordEntry>()
         text.lineSequence().forEachIndexed { index, raw ->
-            val line = raw.trim()
+            var line = raw.trim()
             if (line.isEmpty() || line.startsWith("#")) return@forEachIndexed
-            val parts = line.split("|", limit = 3)
-            if (parts.size < 2) {
-                throw WordLoadException("词表格式错误：第 " + (index + 1) + " 行不是 word|中文释义|巧记")
+            if (!builtin && line.indexOf('|') < 0 && line.contains('\t')) {
+                line = line.replace('\t', '|')
+            }
+            val parts = if (builtin) line.split("|", limit = 4) else line.split("|", limit = 3)
+            val minParts = if (builtin) 3 else 2
+            if (parts.size < minParts) {
+                throw WordLoadException(
+                    if (builtin) {
+                        "词表格式错误：第 " + (index + 1) + " 行应为 word|音标|释义|巧记"
+                    } else {
+                        "第 " + (index + 1) + " 行格式不对，应为 单词|中文释义（可选再跟一段巧记）"
+                    }
+                )
             }
             val word = parts[0].trim()
-            val meaning = parts[1].trim()
-            val mnemonic = if (parts.size >= 3) parts[2].trim() else ""
+            val phonetic = if (builtin) parts[1].trim() else ""
+            val meaning = if (builtin) parts[2].trim() else parts[1].trim()
+            val mnemonic = when {
+                builtin && parts.size > 3 -> parts[3].trim()
+                !builtin && parts.size > 2 -> parts[2].trim()
+                else -> ""
+            }
             if (word.isEmpty() || !WORD_PATTERN.matches(word)) {
-                throw WordLoadException("词表格式错误：第 " + (index + 1) + " 行单词不合法（" + word + "）")
+                throw WordLoadException("第 " + (index + 1) + " 行不是合法英文单词（" + word + "）")
             }
             if (meaning.isEmpty()) {
-                throw WordLoadException("词表格式错误：第 " + (index + 1) + " 行缺少中文释义")
+                throw WordLoadException("第 " + (index + 1) + " 行缺少中文释义（" + word + "）")
             }
             val key = word.lowercase(Locale.ROOT)
             if (!map.containsKey(key)) {
-                map[key] = WordEntry(word = key, meaning = meaning, mnemonic = mnemonic)
+                map[key] = WordEntry(
+                    word = key,
+                    meaning = meaning,
+                    phonetic = phonetic,
+                    mnemonic = mnemonic
+                )
             }
+        }
+        if (map.isEmpty()) {
+            throw WordLoadException("词表是空的，或者每行都缺格式")
         }
         return map.values.toList()
     }
