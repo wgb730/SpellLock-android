@@ -82,6 +82,27 @@ object A11yGuard {
         }.getOrDefault(false)
     }
 
+    /**
+     * 把本服务从启用列表里摘掉。
+     * 用途：系统把服务记成 crashed 之后，AMS 不会自动重绑；先摘再写回能触发一次全新绑定。
+     */
+    fun dropFromList(context: Context): Boolean {
+        if (!canWriteSecure(context)) return false
+        return try {
+            val resolver = context.contentResolver
+            val current = Settings.Secure.getString(resolver, KEY_ENABLED_SERVICES).orEmpty()
+            val kept = current.split(':')
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && it != SHORT_COMPONENT && it != fullComponent.flattenToString() }
+            Settings.Secure.putString(resolver, KEY_ENABLED_SERVICES, kept.joinToString(":"))
+            Log.w(TAG, "已把本服务从无障碍列表摘掉，准备重新绑定")
+            true
+        } catch (t: Throwable) {
+            Log.w(TAG, "摘除无障碍服务失败：" + t.message, t)
+            false
+        }
+    }
+
     /** 是否拿到了 WRITE_SECURE_SETTINGS（adb 一次性授权：pm grant ...）。 */
     fun canWriteSecure(context: Context): Boolean = runCatching {
         context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) ==
@@ -102,9 +123,18 @@ object A11yGuard {
                 .filter { it.isNotEmpty() }
                 .toMutableList()
             val already = parts.any { it == SHORT_COMPONENT || it == fullComponent.flattenToString() }
-            if (!already) parts.add(SHORT_COMPONENT)
-            Settings.Secure.putString(resolver, KEY_ENABLED_SERVICES, parts.joinToString(":"))
-            Settings.Secure.putInt(resolver, KEY_ACCESSIBILITY_ENABLED, 1)
+            val switchOn = isGlobalSwitchOn(context)
+            // 幂等：设置本来就正确时绝不重写。每次写 enabled_accessibility_services 都会让系统
+            // 把所有无障碍服务解绑再重绑一次，白白制造一次"服务已断开"，还会和守护形成抖动循环。
+            if (already && switchOn) {
+                Log.d(TAG, "无障碍设置本来就正常，跳过写回以避免触发系统重绑")
+                return true
+            }
+            if (!already) {
+                parts.add(SHORT_COMPONENT)
+                Settings.Secure.putString(resolver, KEY_ENABLED_SERVICES, parts.joinToString(":"))
+            }
+            if (!switchOn) Settings.Secure.putInt(resolver, KEY_ACCESSIBILITY_ENABLED, 1)
             Log.i(TAG, "已自动恢复无障碍服务：" + parts.joinToString(":"))
             true
         } catch (t: Throwable) {

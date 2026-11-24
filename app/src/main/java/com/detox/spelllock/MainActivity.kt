@@ -105,6 +105,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         GuardService.start(this)
+        GuardAlarm.schedule(this)
         // 前台服务是异步起来的，稍等一下再刷一次界面，否则守护状态会一直显示「未运行」
         handler.postDelayed({ refreshAll() }, 800L)
 
@@ -198,28 +199,16 @@ class MainActivity : AppCompatActivity() {
         btnBookCustom.setOnClickListener { switchBook(WordRepository.BOOK_CUSTOM) }
         findViewById<Button>(R.id.btnBookImport).setOnClickListener { pickBookFile() }
 
-        findViewById<Button>(R.id.btnSetGrace).setOnClickListener {
+        findViewById<Button>(R.id.btnSetInterval).setOnClickListener {
             showMinutesDialog(
-                getString(R.string.time_grace_dialog),
-                AppPrefs.graceMinutes(this),
-                AppPrefs.MAX_GRACE_MINUTES,
-                getString(R.string.time_grace_hint)
+                getString(R.string.time_interval_dialog),
+                AppPrefs.intervalMinutes(this),
+                AppPrefs.MAX_INTERVAL_MINUTES,
+                getString(R.string.time_interval_hint)
             ) { minutes ->
-                AppPrefs.setGraceMinutes(this, minutes)
+                AppPrefs.setIntervalMinutes(this, minutes)
                 refreshTimeUi()
-                toast(getString(R.string.time_saved, minutes))
-            }
-        }
-
-        findViewById<Button>(R.id.btnSetUsage).setOnClickListener {
-            showMinutesDialog(
-                getString(R.string.time_usage_dialog),
-                AppPrefs.usageMinutes(this),
-                AppPrefs.MAX_USAGE_MINUTES,
-                getString(R.string.time_usage_hint)
-            ) { minutes ->
-                AppPrefs.setUsageMinutes(this, minutes)
-                refreshTimeUi()
+                refreshGraceText()
                 toast(getString(R.string.time_saved, minutes))
             }
         }
@@ -293,18 +282,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshGraceText() {
-        val grace = UnlockGate.remainingSeconds(this)
-        val usageLeftSec = UnlockGate.usageRemainingMillis(this) / 1000L
-        val usedSec = UnlockGate.usedMillis(this) / 1000L
-        val limitSec = UnlockGate.usageLimitMs(this) / 1000L
-        val usageText = if (usageLeftSec > 0L) {
-            "本次放行：已用 " + (usedSec / 60L) + " 分 " + (usedSec % 60L) + " 秒，还可再用 " +
-                (usageLeftSec / 60L) + " 分 " + (usageLeftSec % 60L) +
-                " 秒（三款应用累计满 " + (limitSec / 60L) + " 分钟会再测一次）"
+        val leftSec = UnlockGate.remainingSeconds(this)
+        val totalMin = AppPrefs.intervalMinutes(this)
+        graceStatus.text = if (leftSec > 0L) {
+            "距离下次验证：" + (leftSec / 60L) + " 分 " + (leftSec % 60L) +
+                " 秒（固定间隔 " + totalMin + " 分钟，不管用不用都在走）"
         } else {
-            "本次放行已用完：下次打开目标 App 需要重新验证"
+            "放行已到期：打开目标 App 需要重新验证（固定间隔 " + totalMin + " 分钟）"
         }
-        graceStatus.text = "免检放行剩余：" + grace + " 秒\n" + usageText
     }
 
     /** 修改急事直通密码：两次输入一致且不少于 4 位才保存。 */
@@ -585,11 +570,7 @@ class MainActivity : AppCompatActivity() {
     // ---------- 时间设置 ----------
 
     private fun refreshTimeUi() {
-        timeStatus.text = getString(
-            R.string.time_status_format,
-            AppPrefs.graceMinutes(this),
-            AppPrefs.usageMinutes(this)
-        )
+        timeStatus.text = getString(R.string.time_status_format, AppPrefs.intervalMinutes(this))
     }
 
     /** 分钟数输入框：1..max 的整数才保存。 */

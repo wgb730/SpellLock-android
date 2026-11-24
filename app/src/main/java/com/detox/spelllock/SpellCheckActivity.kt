@@ -691,10 +691,10 @@ class SpellCheckActivity : AppCompatActivity() {
     private fun unlockAndFinish() {
         UnlockGate.grant(this)
         OverlayLock.hide()
-        val minutes = UnlockGate.usageLimitMs(this) / 60_000L
+        val minutes = UnlockGate.intervalMs(this) / 60_000L
         Toast.makeText(
             this,
-            "验证通过：三款应用累计可用 " + minutes + " 分钟",
+            "验证通过：" + minutes + " 分钟内不再拦截（到点重新验证）",
             Toast.LENGTH_SHORT
         ).show()
         // 只关闭验证页，不重新启动目标 App：下层目标 App 原样显现

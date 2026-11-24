@@ -12,6 +12,7 @@ class BootReceiver : BroadcastReceiver() {
         if (intent?.action != Intent.ACTION_BOOT_COMPLETED) return
         Log.i("SpellLock", "开机完成，启动守护服务")
         GuardService.start(context)
+        GuardAlarm.schedule(context)
         A11yGuard.restore(context)
     }
 }

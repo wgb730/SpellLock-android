@@ -474,33 +474,15 @@
             android:textColor="@color/text_secondary"
             android:textSize="14sp" />
 
-        <LinearLayout
+        <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/btnSetInterval"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="48dp"
             android:layout_marginTop="10dp"
-            android:orientation="horizontal">
-
-            <androidx.appcompat.widget.AppCompatButton
-                android:id="@+id/btnSetGrace"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_marginEnd="6dp"
-                android:layout_weight="1"
-                android:background="@drawable/bg_secondary_button"
-                android:text="@string/time_grace_button"
-                android:textAllCaps="false"
-                android:textColor="@color/text_primary" />
-
-            <androidx.appcompat.widget.AppCompatButton
-                android:id="@+id/btnSetUsage"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:background="@drawable/bg_secondary_button"
-                android:text="@string/time_usage_button"
-                android:textAllCaps="false"
-                android:textColor="@color/text_primary" />
-        </LinearLayout>
+            android:background="@drawable/bg_secondary_button"
+            android:text="@string/time_interval_button"
+            android:textAllCaps="false"
+            android:textColor="@color/text_primary" />
 
         <TextView
             android:layout_width="match_parent"

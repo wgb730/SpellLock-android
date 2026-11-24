@@ -105,6 +105,11 @@
         </service>
 
         <!-- 开机自启：重启后自动把守护服务与无障碍服务拉起来 -->
+        <!-- 看门狗：每 5 分钟醒一次，进程被杀后把守护服务与无障碍服务拉回来 -->
+        <receiver
+            android:name=".GuardAlarmReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">

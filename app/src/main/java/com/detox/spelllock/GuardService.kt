@@ -34,7 +34,10 @@ class GuardService : Service() {
         private const val NOTIFICATION_ID = 4200
         private const val ALERT_NOTIFICATION_ID = 4210
         private const val CHECK_INTERVAL_MS = 20_000L
-        private const val RESTORE_COOLDOWN_MS = 30_000L
+        private const val RESTORE_COOLDOWN_MS = 120_000L
+
+        /** 连续几次巡检都发现"设置里有、服务没连上"才动手重绑，避免一次抖动就摘写设置。 */
+        private const val REBIND_STREAK_THRESHOLD = 3
 
         @Volatile
         var running: Boolean = false
@@ -50,6 +53,7 @@ class GuardService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var lastRestoreAt = 0L
     private var lastAlertAt = 0L
+    private var disconnectedStreak = 0
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -69,6 +73,7 @@ class GuardService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
         handler.post(ticker)
+        GuardAlarm.schedule(this)
         Log.i(TAG, "守护服务已启动")
     }
 
@@ -89,10 +94,12 @@ class GuardService : Service() {
     private fun checkOnce() {
         // 用户在主页把守护关掉了：只看不动手
         if (!AppPrefs.guardEnabled(this)) return
-        if (A11yGuard.isEnabled(this)) {
-            // 服务没掉，但系统可能把总开关留成 0（重启后就会真掉），顺手修掉
+        val listed = A11yGuard.isListed(this)
+        val connected = AppAccessibilityService.connected
+        if (listed && connected) {
+            // 服务正常：清掉抖动计数与提醒，总开关只在真的被置 0 时才写
+            disconnectedStreak = 0
             if (!A11yGuard.isGlobalSwitchOn(this)) A11yGuard.fixGlobalSwitch(this)
-            // 恢复正常后把"被关掉了"的提醒收掉，别一直挂在通知栏
             runCatching {
                 (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
                     .cancel(ALERT_NOTIFICATION_ID)
@@ -102,11 +109,27 @@ class GuardService : Service() {
         val now = SystemClock.elapsedRealtime()
         if (A11yGuard.canWriteSecure(this)) {
             if (now - lastRestoreAt < RESTORE_COOLDOWN_MS) return
-            lastRestoreAt = now
-            if (A11yGuard.restore(this)) {
-                Log.i(TAG, "检测到无障碍被系统关闭，已自动写回设置")
+            if (!listed) {
+                // 设置里被删了：直接写回（restore 内部幂等，不需要额外判断）
+                lastRestoreAt = now
+                disconnectedStreak = 0
+                if (A11yGuard.restore(this)) Log.i(TAG, "检测到无障碍被系统关闭，已自动写回设置")
                 return
             }
+            // 设置里还在、服务却没连上：可能是系统把服务记成 crashed，也可能只是一次正常重绑的瞬间。
+            // 连续几次巡检都不通才认为真的挂了，避免抖动期间反复摘写设置（每次写都会触发系统重绑）。
+            disconnectedStreak += 1
+            if (disconnectedStreak < REBIND_STREAK_THRESHOLD) {
+                Log.w(TAG, "服务暂未连上（第 " + disconnectedStreak + " 次巡检），继续观察")
+                return
+            }
+            disconnectedStreak = 0
+            lastRestoreAt = now
+            // 系统把它记成了 crashed service 时不会自动重绑，必须先把组件摘掉再写回去。
+            Log.w(TAG, "无障碍在设置里但服务没连上（crashed），触发重新绑定")
+            A11yGuard.dropFromList(this)
+            handler.postDelayed({ A11yGuard.restore(this) }, 700L)
+            return
         }
         if (now - lastAlertAt < RESTORE_COOLDOWN_MS) return
         lastAlertAt = now

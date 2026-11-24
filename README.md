@@ -5,11 +5,12 @@
 
 - **三本内置词书可切换**：考研核心词 1483 / 四级核心词 1616 / 六级核心词 2143（口径见 §4）
 - **可导入自定义词书**：TXT，每行 `单词|中文释义|巧记`，至少 10 个词，导入后自动切过去（§13.2）
-- **免检间隔与使用上限都能自己调**：默认「验证通过后 5 分钟免检 + 目标应用累计 20 分钟再测一次」，范围 1–120 / 1–480 分钟（§13.3）
+- **固定间隔倒计时，时长自己定**：验证通过后开始倒计时（默认 30 分钟，范围 1–480 分钟），**不管用不用都在走**，到点再测一次（§15）
+- **无障碍掉线会自己修**：前台守护服务 + 5 分钟闹钟兜底，服务被系统记成 crashed 时自动摘写重绑（§14、§15.2）
 - 出过的词 **5 天内不重复**；答错揭晓答案时，词书里带「巧记」就一并显示
 - 急事直通：验证页底部输入密码可直接放行，**默认密码 123456**，可在主页「修改急事直通密码」改成自己的
 
-> 本 README 以 **v1.1.0（2026-11-24）** 为准；§11 里的 v1.0.0 真机验证记录保留原文，作为当时的证据。
+> 本 README 以 **v1.2.0（2026-11-24）** 为准；§11–§14 是 v1.0.0 / v1.1.0 / v1.1.1 的历史记录，保留原文作为当时的证据。
 
 - 运行时**不依赖电脑端 ADB / Agent**，不 root，不用设备管理员，不用悬浮窗做主方案
 - 主方案：`AccessibilityService` 监听 `TYPE_WINDOW_STATE_CHANGED`
@@ -48,7 +49,11 @@ spelllock/
       │  ├─ AppAccessibilityService.kt ★ 无障碍监听 + 过滤 + 启动验证页
       │  ├─ SpellCheckActivity.kt      ★ 全屏验证页：禁返回、选择题/拼写、放行
       │  ├─ SelfGuard.kt               验证页可见性标记（防重复弹）
-      │  ├─ UnlockGate.kt              免检间隔 + 累计使用上限（主页可调 1–120 / 1–480 分钟）
+      │  ├─ A11yGuard.kt               无障碍自检/写回/摘除（幂等写）
+      │  ├─ GuardService.kt            前台守护：每 20 秒巡检，必要时摘写重绑
+      │  ├─ GuardAlarm.kt              5 分钟闹钟，进程被杀后把 App 叫起来
+      │  ├─ BootReceiver.kt            开机自启守护
+      │  ├─ UnlockGate.kt              固定间隔倒计时（AppPrefs.intervalMinutes，主页可调 1–480 分钟）
       │  ├─ ForegroundFilter.kt        自身/SystemUI/桌面/输入法/电话过滤
       │  ├─ WordRepository.kt          词书加载/切换/导入、词数校验、抽 10 词（5 天去重）
       │  ├─ BlockNotifier.kt           降级方案：高优先级通知
@@ -78,12 +83,11 @@ spelllock/
    包安装器、权限控制器、Launcher（`CATEGORY_HOME` 动态查询）、输入法（`enabledInputMethodList`）。
    这一步保证验证页不会因为自己的包名再次触发，不会闪屏或死循环。
 
-4. **宽限期**
-   `UnlockGate.isInGracePeriod()`：验证通过后 **免检间隔**（默认 5 分钟，主页可调 1–120 分钟，存 `AppPrefs.graceMinutes`）内不重复弹，避免在目标 App 内切页面时反复触发。
-   计时用 `SystemClock.elapsedRealtime()`（改系统时间绕不过，重启后自动失效）。
-
-   **累计使用时长**：`AppPrefs.usageMinutes`（默认 20 分钟，主页可调 1–480 分钟）。服务只在目标应用处于前台时计时
-   （每 15 秒结算一次，验证页自己的答题时间不计），三款应用合计满该额度立刻重新上锁。验证通过后计数清零。
+4. **放行倒计时（固定间隔）**
+   `UnlockGate.hasActiveSession()`：验证通过的那一刻把 `SystemClock.elapsedRealtime()` 写进 `last_unlock_elapsed`，
+   之后按**真实时间**倒计时（默认 30 分钟，主页可调 1–480 分钟，存 `AppPrefs.intervalMinutes`）。
+   不管有没有在用目标 App，时间都在走；走完自动回到「需要验证」。`elapsedRealtime` 改系统时间绕不过，
+   重启后 `boot_count` 对不上会自动作废。
 
 5. **启动 `SpellCheckActivity`**
    `FLAG_ACTIVITY_NEW_TASK + CLEAR_TOP + SINGLE_TOP`，Activity 声明
@@ -573,6 +577,8 @@ adb shell dumpsys activity activities | grep topResumedActivity          # 选�
 | 免检间隔 | `grace_minutes` | 5 分钟 | 1–120 分钟 |
 | 使用上限 | `usage_minutes` | 20 分钟 | 1–480 分钟 |
 
+> v1.2.0 起这两项已合并成单一「固定间隔」（`interval_minutes`，默认 30 分钟），下面的表格只作历史记录，见 §15。
+
 `UnlockGate.gracePeriodMs()` / `usageLimitMs()` 每次都从 `AppPrefs` 现读，改完不用重启 App，
 也不影响已经累计的用量；主页那行「已用 X 分 Y 秒，还可再用 Z 分 W 秒」会立刻按新额度重算。
 
@@ -597,6 +603,7 @@ adb shell dumpsys activity activities | grep topResumedActivity          # 选�
 | v1.0.0 | 首版：考研 600 词、答题解锁、遮罩、急事直通密码 | 5,879,697 B |
 | v1.1.0 | 三本词书 + 自定义导入 + 免检/使用时间可调（versionCode 2） | 5,982,060 B |
 | v1.1.1 | 无障碍掉线自愈 + 后台守护服务（versionCode 3） | 6,079,548 B |
+| v1.2.0 | 固定间隔倒计时 + crashed 重绑（versionCode 4，见 §15） | 6,079,215 B |
 
 ---
 
@@ -654,7 +661,92 @@ adb shell cmd deviceidle whitelist +com.detox.spelllock
 - **只要给了写权限，它会一直把服务写回来**：你手动在系统设置里关掉无障碍，20 秒内也会被自动打开——这是这个工具的设定（自控工具如果一关就永久失效，等于没有）。真想停用，先在主页点「暂停自动修复」，它就不动手了。
 - 「修复无障碍」按钮是手动兜底：有写权限就直接写回并提示已修复；没权限就 Toast 提示 + 跳系统无障碍设置，让你手动开。
 
-## 15. 许可证
+---
+
+## 15. v1.2.0：固定间隔倒计时 + 修「无障碍名义开着却不工作」（2026-11-24 装机）
+
+### 15.1 时间设置从两项合并成一项：固定间隔
+
+v1.1.0 是「免检间隔 + 目标应用累计使用上限」两个旋钮，用起来不符合「到点就该重测」的直觉。v1.2.0 直接合成一个：
+
+| 项 | prefs 键 | 默认 | 范围 |
+|---|---|---|---|
+| 固定间隔 | `interval_minutes` | 30 分钟 | 1–480 分钟 |
+
+- 计时口径：从**验证通过那一刻**起，用 `SystemClock.elapsedRealtime()` 倒计时，**不管用不用都在走**；
+- 到点后 `UnlockGate.hasActiveSession()` 立刻变 false，下次打开目标 App 马上重新验证；
+- 主页状态行实时显示「距离下次验证：X 分 Y 秒（固定间隔 N 分钟，不管用不用都在走）」，跑完显示「放行已到期：打开目标 App 需要重新验证」；
+- 原来的「免检间隔 / 使用上限」两个按钮合成一个「修改间隔（分钟）」；服务里的累计计时（`used_millis`、15 秒结算那一套）整套删掉；
+- 实测改间隔立即生效：把 30 改成 31 分钟，状态行同一秒变成「距离下次验证：30 分 24 秒（固定间隔 31 分钟…）」。
+
+![固定间隔设置](docs/screenshots/08-fixed-interval.png)
+
+答题页页脚也改成了新口径：
+
+![答题页页脚](docs/screenshots/09-quiz-footnote.png)
+
+### 15.2 「无障碍设置里开着、实际不工作」的根因
+
+真机取证（vivo V2426A / Android 15）：
+
+| 现象 | 证据 |
+|---|---|
+| 设置里 `accessibility_enabled=1`，列表里也有本应用 | `settings get secure` |
+| 但系统并没有真的绑定它 | `dumpsys accessibility`：Bound services 里没有本应用，反而出现在 `Crashed services` |
+| 日志里没有任何 Java 异常 | logcat 无本包堆栈 |
+| 进程一直被系统回收 | `dumpsys activity exit-info`：reason=3 (LOW_MEMORY)、description=single-cleaner，一天内多次；RSS 600–771MB |
+
+根因不是代码崩溃，而是**进程被 LMK 杀掉**：AMS 把无障碍服务记成 crashed，且**不会自动重绑**，
+而设置里的条目还在。旧版守卫只读「设置里有没有」，看到有就以为一切正常，于是出现「名义开启、实际不拦截」。
+
+### 15.3 修法：三段式自愈（v1.2.0）
+
+| 组件 | 职责 |
+|---|---|
+| `AppAccessibilityService.connected` | `onServiceConnected` 置 true、`onUnbind/onDestroy` 置 false，反映「真的连上了没」 |
+| `GuardService.checkOnce()` | 每 20 秒巡检「设置里有 + 真的连上了」；设置里没了 → 幂等写回；有但没连上 → **连续 3 次巡检（约 60 秒）** 才判定 crashed，先摘组件再写回触发重绑；修复后冷却 120 秒 |
+| `GuardAlarm` + `GuardAlarmReceiver` | `setAndAllowWhileIdle` 每 5 分钟把进程叫醒一次，进程被杀也能回来修 |
+| `A11yGuard.restore()` | **幂等写**：设置本来就正确时绝不重写 |
+
+最后一条是关键坑：每次写 `enabled_accessibility_services` 都会让系统把所有无障碍服务**解绑再重绑一次**。
+无条件写会自己制造「无障碍服务已断开」，守护看到断开又去写，实测形成 10–30 秒一次的抖动循环
+（日志里 `已断开 → crashed，触发重新绑定 → 已摘掉 → 已自动恢复 → 已连接` 反复刷）。
+改成幂等 + 连续 3 次才动手 + 120 秒冷却后，稳态 180 秒零「已断开」。
+
+### 15.4 真机验证（vivo V2426A / Android 15，2026-11-24 21:36–21:56）
+
+| # | 验证项 | 结果 | 证据 |
+|---|--------|------|------|
+| 1 | 装 v1.2.0 | 通过 | `dumpsys package`：versionCode=4、versionName=1.2.0 |
+| 2 | 固定间隔倒计时 | 通过 | 间隔 30：主页「距离下次验证：29 分 54 秒（固定间隔 30 分钟，不管用不用都在走）」 |
+| 3 | 到点必须重测，且与使用无关 | 通过 | 间隔改 1 分钟 → 完全不碰目标 App 等 70 秒 → 再启动 `com.phoenix.read`，`topResumedActivity=com.detox.spelllock/.SpellCheckActivity` |
+| 4 | 改间隔立即生效 | 通过 | 30 → 31 分钟，状态行秒变「固定间隔 31 分钟」，倒计时按 31 分钟重算 |
+| 5 | 答题页页脚文案 | 通过 | 「验证通过后开始固定间隔倒计时，到点后不管用不用都会再测一次（间隔可在主页修改）」 |
+| 6 | crashed 服务能被重绑 | 通过 | `am force-stop` 后只写回设置（不重绑）再启动 App：logcat「无障碍在设置里但服务没连上（crashed），触发重新绑定」→「已把本服务从无障碍列表摘掉，准备重新绑定」→「已自动恢复无障碍服务」→「无障碍服务已连接」，`dumpsys accessibility` Bound services 恢复 |
+| 7 | 稳态不抖动 | 通过 | 新逻辑下连续 180 秒没有一条「已断开」，Bound services 始终在 |
+| 8 | 拦截本身仍正常 | 通过 | 到点后启动 `com.phoenix.read` 照样弹验证页；急事直通密码 123456 仍可放行 |
+
+### 15.5 仍然存在的边界（如实说明）
+
+- **LMK 真杀那一下仍然会短暂失效**：进程被杀到闹钟把它叫起来之间（最长 5 分钟）不拦截，这是非 root 应用的上限。
+  把 App 加进电池白名单、允许自启动能显著降低被杀概率（主页有「电池白名单」按钮）。
+- 测试里用 `am kill` 复现 LMK 没成功（前台服务不会被 `am kill` 回收），所以第 6 项用「force-stop + 只写设置」来模拟 crashed 状态。
+- 写权限（`WRITE_SECURE_SETTINGS`）仍要靠 adb 一次性授权，没授权时守护只能发通知让你手动开。
+
+### 15.6 版本
+
+| 版本 | 变化 | APK |
+|---|---|---|
+| v1.0.0 | 首版：考研 600 词、答题解锁、遮罩、急事直通密码 | 5,879,697 B |
+| v1.1.0 | 三本词书 + 自定义导入 + 免检/使用时间可调（versionCode 2） | 5,982,060 B |
+| v1.1.1 | 无障碍掉线自愈 + 后台守护服务（versionCode 3） | 6,079,548 B |
+| v1.2.0 | 固定间隔倒计时（单一时间项）+ crashed 服务自动重绑 + 幂等写（versionCode 4） | 6,079,215 B |
+
+> v1.2.0 APK 的 SHA-256：`b4d044def8bcba1f49cdfb321a9573edfa38d38a9e20bd466bd846b4eb0c5355`
+
+---
+
+## 16. 许可证
 
 本项目以 **MIT License** 开源，见 [LICENSE](LICENSE)。你可以自由使用、修改、分发，包括商用；
 唯一要求是保留版权声明与许可声明。源码按「现状」提供，不附带任何担保。

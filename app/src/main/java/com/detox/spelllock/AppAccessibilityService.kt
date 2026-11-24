@@ -12,13 +12,13 @@ import android.view.accessibility.AccessibilityEvent
  * 主方案：监听 TYPE_WINDOW_STATE_CHANGED，判断前台包名是否命中目标应用。
  *
  * 命中后的处理顺序：
- * 1. 若在免检放行期（验证通过后「免检间隔」，默认 5 分钟）或累计使用时长还没满「使用上限」（默认 20 分钟）：直接放行，同时开始计时。
+ * 1. 若固定间隔倒计时还没走完（UnlockGate.hasActiveSession，默认 30 分钟，主页可改）：直接放行。
  * 2. 否则先在目标应用上盖一层无障碍遮罩（OverlayLock）：遮罩吞掉全部触摸，
  *    用户不答题就无法操作下面的应用，"切后台回来继续用"这条路被堵死。
  * 3. 再启动全屏验证页叠在上面；验证页一出现就撤掉遮罩。
  *
- * 计时规则：只统计目标应用在前台的时长；验证页自己的答题时间不计入。
- * 三款目标应用合计满「使用上限」（UnlockGate.usageLimitMs）立刻重新上锁。
+ * 计时规则：从验证通过那一刻起按真实时间倒计时（elapsedRealtime），不管用不用都在走，
+ * 走完就重新上锁；间隔长度见 AppPrefs.intervalMinutes（1–480 分钟）。
  *
  * 目标包来源（两者并集）：
  * 1) TargetApps.kt 里代码配置的包名
@@ -35,8 +35,10 @@ class AppAccessibilityService : AccessibilityService() {
         /** 检查"验证页是否真的启动了"的延迟（后台启动被静默拒绝时用来补通知）。 */
         private const val FALLBACK_CHECK_DELAY_MS = 4500L
 
-        /** 使用时长结算间隔：15 秒累加一次，误差不超过 15 秒。 */
-        private const val USAGE_TICK_MS = 15_000L
+        /** 无障碍服务是否真的连上了：设置里有不代表真的在跑（crashed 状态就只是"名义开启"）。 */
+        @Volatile
+        var connected: Boolean = false
+            private set
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -46,15 +48,10 @@ class AppAccessibilityService : AccessibilityService() {
     /** 当前停在前台的目标应用（离开目标应用后清空）。 */
     private var foregroundTarget: String? = null
 
-    /** 计时锚点：>0 表示正在计时，值 = 上一次结算的时刻。 */
-    private var usageAnchor = 0L
-    private var tickerArmed = false
-
-    private val usageTicker = Runnable { tickUsage() }
-
     override fun onServiceConnected() {
         super.onServiceConnected()
         OverlayLock.attach(this)
+        connected = true
         Log.i(TAG, "无障碍服务已连接")
         // 服务连上就把守护进程拉起来：它负责在服务被系统删掉时自动写回设置
         GuardService.start(this)
@@ -65,7 +62,7 @@ class AppAccessibilityService : AccessibilityService() {
         // 断连时让守护进程去看一眼：是临时解绑（返回 true 会自动重绑），
         // 还是系统把本服务从设置里删了（那就得写回设置或提醒用户）
         GuardService.start(this)
-        stopAccruing()
+        connected = false
         handler.removeCallbacksAndMessages(null)
         pendingFallback = null
         foregroundTarget = null
@@ -74,7 +71,7 @@ class AppAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
-        stopAccruing()
+        connected = false
         handler.removeCallbacksAndMessages(null)
         OverlayLock.hide()
         super.onDestroy()
@@ -99,7 +96,6 @@ class AppAccessibilityService : AccessibilityService() {
         val isTarget = TargetApps.isTarget(packageName) ||
             ExtraTargets.isTarget(this, packageName)
         if (!isTarget) {
-            stopAccruing()
             foregroundTarget = null
             if (OverlayLock.isShowing()) OverlayLock.hide()
             return
@@ -109,14 +105,12 @@ class AppAccessibilityService : AccessibilityService() {
 
         // 3) 验证页已在前台：不重复叠层，避免闪屏/死循环（答题时间也不计入使用时长）
         if (SelfGuard.spellCheckVisible) {
-            stopAccruing()
             if (OverlayLock.isShowing()) OverlayLock.hide()
             return
         }
 
-        // 4) 免检放行期 / 还有累计可用时长：放行并开始计时
-        if (UnlockGate.isInGracePeriod(this) || UnlockGate.hasActiveSession(this)) {
-            startAccruing()
+        // 4) 固定间隔还没到点：放行（倒计时与用不用无关，这里不做任何计时）
+        if (UnlockGate.hasActiveSession(this)) {
             if (OverlayLock.isShowing()) OverlayLock.hide()
             return
         }
@@ -128,10 +122,7 @@ class AppAccessibilityService : AccessibilityService() {
 
         Log.i(TAG, "命中目标应用：" + packageName)
 
-        // 6) 先把上一段时长结算掉，再拦截
-        stopAccruing()
-
-        // 7) 用户开启了降级模式：走通知（带全屏 Intent，能直接拉起验证页）
+        // 6) 用户开启了降级模式：走通知（带全屏 Intent，能直接拉起验证页）
         if (AppPrefs.useNotificationFallback(this)) {
             BlockNotifier.postGuardNotification(this, packageName)
             return
@@ -147,60 +138,6 @@ class AppAccessibilityService : AccessibilityService() {
 
         // 9) 检查页面是否真的出现（部分 ROM 静默拒绝后台启动 Activity）
         scheduleFallbackCheck(packageName, now)
-    }
-
-    // ---------- 使用时长计时 ----------
-
-    /** 开始/继续计时。 */
-    private fun startAccruing() {
-        if (usageAnchor == 0L) usageAnchor = SystemClock.elapsedRealtime()
-        if (!tickerArmed) {
-            tickerArmed = true
-            handler.postDelayed(usageTicker, USAGE_TICK_MS)
-        }
-    }
-
-    /** 结算并停止计时。 */
-    private fun stopAccruing() {
-        accrueUsage()
-        usageAnchor = 0L
-        tickerArmed = false
-        handler.removeCallbacks(usageTicker)
-    }
-
-    /** 把锚点到现在这段时长记进 UnlockGate；验证页在前台时不计。 */
-    private fun accrueUsage() {
-        if (usageAnchor <= 0L) return
-        val now = SystemClock.elapsedRealtime()
-        if (SelfGuard.spellCheckVisible) {
-            usageAnchor = now
-            return
-        }
-        val delta = now - usageAnchor
-        usageAnchor = now
-        if (delta > 0L) UnlockGate.addUsage(this, delta)
-    }
-
-    private fun tickUsage() {
-        tickerArmed = false
-        if (usageAnchor <= 0L) return
-        accrueUsage()
-        val exhausted = !UnlockGate.hasActiveSession(this) &&
-            !UnlockGate.isInGracePeriod(this)
-        if (exhausted) {
-            val pkg = foregroundTarget
-            Log.i(TAG, "三款应用累计使用已满 20 分钟，重新上锁：" + pkg)
-            usageAnchor = 0L
-            if (pkg != null && !SelfGuard.spellCheckVisible) {
-                OverlayLock.show(this, pkg)
-                if (!startSpellCheck(pkg)) {
-                    BlockNotifier.postGuardNotification(this, pkg)
-                }
-            }
-            return
-        }
-        tickerArmed = true
-        handler.postDelayed(usageTicker, USAGE_TICK_MS)
     }
 
     private fun startSpellCheck(packageName: String): Boolean {
@@ -225,7 +162,7 @@ class AppAccessibilityService : AccessibilityService() {
             pendingFallback = null
             val acked = SelfGuard.lastShownAtElapsed >= launchAt
             val visible = SelfGuard.spellCheckVisible
-            val inGrace = UnlockGate.isInGracePeriod(this)
+            val inGrace = UnlockGate.hasActiveSession(this)
             if (!acked && !visible && !inGrace) {
                 Log.w(
                     TAG,

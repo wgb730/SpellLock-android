@@ -9,8 +9,7 @@ object AppPrefs {
     private const val KEY_ANSWER_MODE = "answer_reveal_mode"
     private const val KEY_CHOICE_MODE = "choice_mode"
     private const val KEY_WORD_BOOK = "word_book"
-    private const val KEY_GRACE_MINUTES = "grace_minutes"
-    private const val KEY_USAGE_MINUTES = "usage_minutes"
+    private const val KEY_INTERVAL_MINUTES = "interval_minutes"
     private const val KEY_GUARD_ENABLED = "guard_enabled"
 
     /** 验证页答案展示方式 */
@@ -33,12 +32,13 @@ object AppPrefs {
     private const val KEY_ADMIN_PASSWORD = "admin_password"
     const val DEFAULT_ADMIN_PASSWORD = "123456"
 
-    /** 时间设置：免检间隔（验证通过后多久内不再拦截）与使用上限（目标 App 累计可用多久）。 */
-    const val DEFAULT_GRACE_MINUTES = 5
-    const val DEFAULT_USAGE_MINUTES = 20
+    /**
+     * 固定间隔：验证通过后，不管用不用目标 App，时间一到就得重新验证。
+     * 从 v1.2.0 起只有这一个时间设置。
+     */
+    const val DEFAULT_INTERVAL_MINUTES = 30
     const val MIN_MINUTES = 1
-    const val MAX_GRACE_MINUTES = 120
-    const val MAX_USAGE_MINUTES = 480
+    const val MAX_INTERVAL_MINUTES = 480
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -75,25 +75,14 @@ object AppPrefs {
         prefs(context).edit().putString(KEY_WORD_BOOK, id).apply()
     }
 
-    /** 验证通过后的免检间隔（分钟）。 */
-    fun graceMinutes(context: Context): Int =
-        prefs(context).getInt(KEY_GRACE_MINUTES, DEFAULT_GRACE_MINUTES)
-            .coerceIn(MIN_MINUTES, MAX_GRACE_MINUTES)
+    /** 固定间隔（分钟）：验证通过后多久必须重新验证，与是否使用无关。 */
+    fun intervalMinutes(context: Context): Int =
+        prefs(context).getInt(KEY_INTERVAL_MINUTES, DEFAULT_INTERVAL_MINUTES)
+            .coerceIn(MIN_MINUTES, MAX_INTERVAL_MINUTES)
 
-    fun setGraceMinutes(context: Context, minutes: Int) {
+    fun setIntervalMinutes(context: Context, minutes: Int) {
         prefs(context).edit()
-            .putInt(KEY_GRACE_MINUTES, minutes.coerceIn(MIN_MINUTES, MAX_GRACE_MINUTES))
-            .apply()
-    }
-
-    /** 目标应用累计可用时长（分钟）。 */
-    fun usageMinutes(context: Context): Int =
-        prefs(context).getInt(KEY_USAGE_MINUTES, DEFAULT_USAGE_MINUTES)
-            .coerceIn(MIN_MINUTES, MAX_USAGE_MINUTES)
-
-    fun setUsageMinutes(context: Context, minutes: Int) {
-        prefs(context).edit()
-            .putInt(KEY_USAGE_MINUTES, minutes.coerceIn(MIN_MINUTES, MAX_USAGE_MINUTES))
+            .putInt(KEY_INTERVAL_MINUTES, minutes.coerceIn(MIN_MINUTES, MAX_INTERVAL_MINUTES))
             .apply()
     }
 
