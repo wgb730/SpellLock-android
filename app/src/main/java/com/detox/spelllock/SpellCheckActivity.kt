@@ -72,6 +72,9 @@ class SpellCheckActivity : AppCompatActivity() {
 
     /** 选择题里选错的词 */
     private val wrongWords = mutableListOf<WordEntry>()
+
+    /** 本轮已经写进错词本的词（小写），同一个词一轮只记一次 */
+    private val recordedWrong = HashSet<String>()
     private var answeredCount = 0
 
     private var tts: TextToSpeech? = null
@@ -278,6 +281,7 @@ class SpellCheckActivity : AppCompatActivity() {
         quizWords = emptyList()
         words = emptyList()
         wrongWords.clear()
+        recordedWrong.clear()
         answeredCount = 0
         answerInputs.clear()
         answerTexts.clear()
@@ -299,6 +303,7 @@ class SpellCheckActivity : AppCompatActivity() {
     private fun showWords(drawn: List<WordEntry>) {
         quizWords = drawn
         wrongWords.clear()
+        recordedWrong.clear()
         answeredCount = 0
         container.removeAllViews()
         choiceContainer.removeAllViews()
@@ -424,6 +429,7 @@ class SpellCheckActivity : AppCompatActivity() {
                     buttons.getOrNull(correctIndex)
                         ?.setBackgroundResource(R.drawable.bg_option_correct)
                     wrongWords.add(entry)
+                    recordWrongWord(entry)
                 }
                 buttons.forEach { b -> b.isEnabled = false }
                 progressText.text = "已选 " + answeredCount + " / " + quizWords.size
@@ -631,6 +637,7 @@ class SpellCheckActivity : AppCompatActivity() {
             } else {
                 wrongIndices.add(index)
                 input.setText("")
+                recordWrongWord(entry)
             }
         }
 
@@ -682,6 +689,23 @@ class SpellCheckActivity : AppCompatActivity() {
             }
             .setNegativeButton(R.string.admin_cancel, null)
             .show()
+    }
+
+    /** 把答错的词写进错词本：同一轮同一个词只记一次，写盘放后台线程。 */
+    private fun recordWrongWord(entry: WordEntry) {
+        val key = entry.word.lowercase(Locale.ROOT)
+        if (!recordedWrong.add(key)) return
+        Thread {
+            try {
+                WrongBook.record(
+                    applicationContext,
+                    entry,
+                    WordRepository.currentBookId(applicationContext)
+                )
+            } catch (t: Throwable) {
+                Log.e(TAG, "记录错词失败", t)
+            }
+        }.start()
     }
 
     private fun dp(value: Int): Int {

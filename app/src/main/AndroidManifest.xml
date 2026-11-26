@@ -61,6 +61,12 @@
             android:exported="false"
             android:label="选择要拦截的应用" />
 
+        <!-- 错词本：主页入口，只在本应用内打开 -->
+        <activity
+            android:name=".WrongBookActivity"
+            android:exported="false"
+            android:label="@string/wrong_title" />
+
         <!--
             验证页：
             - exported=false：只能由本 App 内部启动

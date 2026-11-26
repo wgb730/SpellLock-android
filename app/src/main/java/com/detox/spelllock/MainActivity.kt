@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnBookCet4: AppCompatButton
     private lateinit var btnBookCet6: AppCompatButton
     private lateinit var btnBookCustom: AppCompatButton
+    private lateinit var btnWrongBook: AppCompatButton
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -93,6 +94,11 @@ class MainActivity : AppCompatActivity() {
         btnBookCet4 = findViewById(R.id.btnBookCet4)
         btnBookCet6 = findViewById(R.id.btnBookCet6)
         btnBookCustom = findViewById(R.id.btnBookCustom)
+        btnWrongBook = findViewById(R.id.btnWrongBook)
+
+        btnWrongBook.setOnClickListener {
+            startActivity(Intent(this, WrongBookActivity::class.java))
+        }
 
         scannerResult.text = "可在电脑上执行：adb shell pm list packages | grep -i aweme"
 
@@ -278,6 +284,7 @@ class MainActivity : AppCompatActivity() {
         syncAnswerModeUi()
         refreshBookUi()
         refreshTimeUi()
+        refreshWrongUi()
         refreshGraceText()
     }
 
@@ -565,6 +572,17 @@ class MainActivity : AppCompatActivity() {
         val book = WordRepository.bookById(this, id) ?: return ""
         val mark = if (WordRepository.currentBookId(this) == id) "✓ " else ""
         return mark + book.title
+    }
+
+    // ---------- 错词本 ----------
+
+    private fun refreshWrongUi() {
+        val count = WrongBook.size(this)
+        btnWrongBook.text = if (count > 0) {
+            getString(R.string.wrong_button_count, count)
+        } else {
+            getString(R.string.wrong_button)
+        }
     }
 
     // ---------- 时间设置 ----------

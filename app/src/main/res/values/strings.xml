@@ -75,4 +75,24 @@
     <string name="guard_notification_text">保持无障碍在线，目标 App 才会被拦；这条通知可以忽略。</string>
     <string name="guard_channel_name">后台守护</string>
     <string name="guard_channel_desc">常驻通知：让系统少杀进程，并在无障碍被关掉时提醒你。</string>
+
+    <!-- 错词本 -->
+    <string name="wrong_section">错词本</string>
+    <string name="wrong_home_hint">答题时选错或拼错的单词会自动记进来，按答错次数从多到少排列。</string>
+    <string name="wrong_button">查看错词本</string>
+    <string name="wrong_button_count">查看错词本（%1$d 个错词）</string>
+    <string name="wrong_title">错词本</string>
+    <string name="wrong_back">返回</string>
+    <string name="wrong_summary">共 %1$d 个错词 · 按答错次数从多到少排列，次数相同看最近答错时间</string>
+    <string name="wrong_summary_empty">还没有错词</string>
+    <string name="wrong_empty">答题时选错或拼错的单词会自动记到这里。攒得越久，这份清单越像你自己的难点表。</string>
+    <string name="wrong_count_format">错 %1$d 次</string>
+    <string name="wrong_time_format">最近 %1$s</string>
+    <string name="wrong_longpress_hint">长按任意一行可以单独删掉那个词</string>
+    <string name="wrong_clear">清空错词本</string>
+    <string name="wrong_clear_ok">清空</string>
+    <string name="wrong_clear_confirm">清空后所有记录都会消失，且无法恢复。确定清空吗？</string>
+    <string name="wrong_remove_title">移除这个错词</string>
+    <string name="wrong_remove_ok">移除</string>
+    <string name="wrong_remove_confirm">把「%1$s」从错词本里删掉？</string>
 </resources>
